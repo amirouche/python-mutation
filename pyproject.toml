@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "mutation"
+version = "0.1.0"
+description = "test mutation for pytest."
+authors = ["Amirouche <amirouche@hyper.dev>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+loguru = "^0.5.3"
+aiostream = "^0.4.1"
+docopt = "^0.6.2"
+lsm-db = "^0.6.4"
+parso = "^0.8.1"
+GitPython = "^3.1.12"
+lexode = "0.*"
+zstandard = {extras = ["cffi"], version = "^0.15.1"}
+python-ulid = "^1.0.2"
+pytest-xdist = "^2.2.0"
+pytest-cov = "^2.11.1"
+pytest-randomly = "^3.5.0"
+humanize = "^3.2.0"
+diff-highlight = "^1.2.0"
+astunparse = "^1.6.3"
+
+[tool.poetry.dev-dependencies]
+debug = "^0.3.2"
+ipython = "^7.19.0"
+pytest = "^6.2.1"
+tbvaccine = "^0.3.1"
+black = "^20.8b1"
+isort = "^5.7.0"
+
+[tool.poetry.scripts]
+mutation = "mutation:main"
+
+[tool.poetry.plugins.pytest11]
+mutation = "mutation"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
