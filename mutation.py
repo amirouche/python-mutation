@@ -643,8 +643,8 @@ async def _main(loop, arguments):
 
         if out.returncode != 0:
             msg = "Tests are definitly red! Return code is {}"
-            log.warning(msg, out.returncode)
-            log.warning("I tried the following command: `{}`", " ".join(command))
+            log.error(msg, out.returncode)
+            log.error("I tried the following command: `{}`", " ".join(command))
             sys.exit(1)
 
         log.info("Overriding max_workers=1 because tests do not pass in parallel")
