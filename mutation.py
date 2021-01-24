@@ -396,6 +396,12 @@ def mutate(node, index, mutations):
         yield from mutation.mutate(node, index)
 
 
+def is_interesting(new_node, coverage):
+    if getattr(new_node, 'line', False):
+        return new_node.line in coverage
+    return new_node.get_first_leaf().line in coverage
+
+
 def deltas_compute(source, path, coverage, predicate):
     ast = parso.parse(source)
 
@@ -403,11 +409,10 @@ def deltas_compute(source, path, coverage, predicate):
 
     for (index, node) in zip(itertools.count(0), node_iter(ast)):
         for root, new_node in mutate(node, index, mutations):
-            if getattr(new_node, "line", False) and new_node.line not in coverage:
+            if is_interesting(new_node, coverage):
                 msg = "Ignoring mutation because there is no coverage:"
                 msg += " path={}, line={}"
-                log.trace(msg, path, new_node.line)
-                return
+                log.trace(msg, path, getattr(new_node, 'line', 'unknown'))
                 continue
             target = root.get_code()
             delta = diff(source, target, path)
