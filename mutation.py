@@ -458,6 +458,8 @@ def proc(item):  # TODO: rename
 def install_module_loader(uid):
     db = LSM(".mutation.okvslite")
 
+    mutation_show(uid.hex)
+
     path, diff = lexode.unpack(db[lexode.pack([1, uid])])
     diff = zstd.decompress(diff).decode("utf8")
 
