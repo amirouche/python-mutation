@@ -528,8 +528,8 @@ def run(args):  # TODO: rename
             stdout=subprocess.DEVNULL,
             timeout=timeout,
         )
-    except Exception as exc:
-        log.error("Exception with `{}`, exception=`{}`", uid.hex, exc)
+    except Exception as exc:  # TODO: remove wide exception
+        log.trace("Exception with `{}`, exception=`{}`", uid.hex, exc)
     else:
         if out.returncode == 0:
             msg = "no error with mutation: {}"
