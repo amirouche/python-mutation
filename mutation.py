@@ -2,6 +2,7 @@
 
 Usage:
   mutation play [--verbose] [--exclude=<globs>] [--only-deadcode-detection] [--include=<globs>] [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
+  mutation replay
   mutation show failed
   mutation show MUTATION
   mutation (-h | --help)
@@ -48,7 +49,7 @@ from loguru import logger as log
 from lsm import LSM
 from ulid import ULID
 
-__version__ = (0, 3, 0)
+__version__ = (0, 2, 10)
 
 
 MINUTE = 60  # seconds
@@ -587,11 +588,11 @@ def run(command, timeout=None):
 
 def sampling_setup(sampling, total):
     if sampling is None:
-        return total, lambda x: x
+        return lambda x: x, total
 
     if sampling.endswith("%"):
         # randomly choose percent mutations
-        cutoff = int(sampling[:-1]) / 100
+        cutoff = float(sampling[:-1]) / 100
 
         def sampler(iterable):
             for item in iterable:
@@ -778,7 +779,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
     # sampling
     sampling = arguments["--sampling"]
-    total, sampler = sampling_setup(sampling, total)
+    sampler, total = sampling_setup(sampling, total)
     uids = sampler(uids)
 
     for speed in [10_000, 1_000, 100, 10, 1]:
@@ -820,9 +821,10 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
                 await pool_for_each_par_map(loop, pool, on_progress, mutation_pass, uids)
 
-    msg = "Checking that the test suite is strong against mutations took:"
-    msg += " {}... And it is a success 💚"
-    log.info(msg, humanize(delta()))
+    if not errors:
+        msg = "Checking that the test suite is strong against mutations took:"
+        msg += " {}... And it is a success 💚"
+        log.info(msg, humanize(delta()))
 
     return errors
 
@@ -849,6 +851,11 @@ async def play(loop, arguments):
 
     alpha, max_workers = play_test_tests(root, seed, repository, arguments)
 
+    # TODO: Benchmark to know the optimal number of workers
+    #       do the same in replay.
+    # if max_workers != 1:
+    #     max_workers = await play_benchmark()
+
     with database_open(root, recreate=True) as db:
         count = await play_create_mutations(loop, root, db, repository, max_workers, arguments)
         errors = await play_mutations(
@@ -871,6 +878,7 @@ def replay_mutation(db, uid, alpha, seed, max_workers, arguments):
 
     command = arguments["TEST-COMMAND"] or PYTEST
     command.append("--randomly-seed={}".format(seed))
+    max_workers = 1
     if max_workers > 1:
         command.append("--numprocesses={}".format(max_workers))
     timeout = alpha * 2
@@ -878,7 +886,6 @@ def replay_mutation(db, uid, alpha, seed, max_workers, arguments):
     while True:
         ok = mutation_pass((command, uid, timeout))
         if not ok:
-            mutation_show(uid.hex)
             msg = "* Type 'skip' to go to next mutation or just enter to retry."
             print(msg)
             retry = input("> ") == 'retry'
@@ -906,20 +913,19 @@ def replay(arguments):
     log.info("Using random seed: {}".format(seed))
     random.seed(seed)
     repository = git_open(root)
-    uid = UUID(hex=arguments["uid"])
 
     alpha, max_workers = play_test_tests(root, seed, repository, arguments)
 
     with database_open(root) as db:
         while True:
-            uids = (lexode.unpack(key)[1] for key, _ in db[lexode.pack([1])])
+            uids = (lexode.unpack(key)[1] for key, _ in db[lexode.pack([2]):])
             uids = sorted(
                 uids,
                 key=functools.partial(mutation_diff_size, db),
                 reverse=True
             )
             if not uids:
-                print("No failures!")
+                log.info("No mutation failures 👍")
                 sys.exit(0)
             while uids:
                 uid = uids.pop(0)
@@ -980,6 +986,10 @@ def main():
     log.debug("Mutation at {}", PRONOTION)
 
     log.trace(arguments)
+
+    if arguments["replay"]:
+        replay(arguments)
+        sys.exit(0)
 
     if arguments.get("show", False):
         mutation_show(arguments["MUTATION"])
