@@ -791,10 +791,21 @@ async def play(loop, arguments):
 
 async def replay(uid=None, interactive=False):
     # Retrieve all failed tests and sort them by diff length
+    # decreasing length.
+
+    # For each mutation:
 
     # show diff
 
-    # Run the tests
+    # Run a single test
+
+    #
+    # Use raw_input("% ") with the following actions:
+    #
+    # - replay
+    # - commit
+    # - skip
+    #
 
 
 def diff_highlight(diff):
