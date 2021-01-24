@@ -534,6 +534,7 @@ def run(args):  # TODO: rename
         if out.returncode == 0:
             msg = "no error with mutation: {}"
             log.error(msg, " ".join(command))
+            db[lexode.pack([2, uid]) = b'\x42'
             mutation_show(uid.hex)
 
 
