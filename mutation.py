@@ -379,7 +379,7 @@ class MutateOperator(metaclass=Mutation):
                 yield root, new
 
 
-def diff(source, target, filename=None):
+def diff(source, target, filename=''):
     lines = unified_diff(
         source.split("\n"), target.split("\n"), filename, filename, lineterm=""
     )
