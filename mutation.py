@@ -752,10 +752,6 @@ async def _main(loop, arguments):
     if sampling:
         log.info("Taking into account sampling there is {} mutations.", total)
 
-    eta = total * alpha / max_workers / 6
-    if eta > HOUR:
-        log.warning("Rough ETA estimation: {}!", humanize(eta))
-
     for speed in [10_000, 1_000, 100, 10, 1]:
         if total // speed == 0:
             continue
