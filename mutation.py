@@ -189,14 +189,8 @@ def node_iter(node, level=1):
         yield from node_iter(child, level)
 
 
-def node_root(node):
-    if node.parent is None:
-        return node
-    return node_root(node.parent)
-
-
 def node_copy_tree(node, index):
-    root = node_root(node)
+    root = node.get_root_node()
     root = deepcopy(root)
     iterator = itertools.dropwhile(
         lambda x: x[0] != index, zip(itertools.count(0), node_iter(root))
