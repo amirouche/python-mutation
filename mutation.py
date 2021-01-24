@@ -534,7 +534,7 @@ def run(args):  # TODO: rename
         if out.returncode == 0:
             msg = "no error with mutation: {}"
             log.error(msg, " ".join(command))
-            db[lexode.pack([2, uid]) = b'\x42'
+            db[lexode.pack([2, uid])] = b'\x42'
             mutation_show(uid.hex)
 
 
@@ -551,7 +551,7 @@ def coverage_read(root):
     return out
 
 
-async def _main(loop, arguments):
+async def play(loop, arguments):
     # TODO: Replay failed tests and remove them from failed if it is
     #       now ok...
     #
@@ -787,6 +787,14 @@ async def _main(loop, arguments):
     db.close()
 
     return None
+
+
+async def replay(uid=None, interactive=False):
+    # Retrieve all failed tests and sort them by diff length
+
+    # show diff
+
+    # Run the tests
 
 
 def diff_highlight(diff):
