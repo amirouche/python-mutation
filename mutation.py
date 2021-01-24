@@ -226,17 +226,19 @@ class Mutation(type):
 class StatementDrop(metaclass=Mutation):
 
     deadcode_detection = True
+    NEWLINE = "a = 42\n"
 
     def predicate(self, node):
         return "stmt" in node.type and node.type != "expr_stmt"
 
     def mutate(self, node, index):
-        log.warning(node.type)
         root, new = node_copy_tree(node, index)
         index = new.parent.children.index(new)
         passi = parso.parse("pass").children[0]
         passi.prefix = new.get_first_leaf().prefix
         new.parent.children[index] = passi
+        newline = parso.parse(type(self).NEWLINE).children[0].children[1]
+        new.parent.children.insert(index + 1, newline)
         yield root, new
 
 
