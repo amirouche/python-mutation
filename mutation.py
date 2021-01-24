@@ -251,9 +251,9 @@ class DefinitionDrop(metaclass=Mutation):
         return node.type in ("classdef", "funcdef")
 
     def mutate(self, node, index):
-        root, node = node_copy_tree(node, index)
-        node.parent.children.remove(node)
-        yield root, node
+        root, new = node_copy_tree(node, index)
+        new.parent.children.remove(new)
+        yield root, new
 
 
 def chunks(iterable, n):
@@ -299,16 +299,16 @@ class MutateString(metaclass=Mutation):
         return node.type == "string"
 
     def mutate(self, node, index):
-        root, node = node_copy_tree(node, index)
-        value = eval(node.value)
+        root, new = node_copy_tree(node, index)
+        value = eval(new.value)
         if isinstance(value, bytes):
             value = b'coffeebad' + value
         else:
             value = "mutated string " + value
         value = Constant(value=value, kind='')
         value = unparse(value).strip()
-        node.value = value
-        yield root, node
+        new.value = value
+        yield root, new
 
 
 class MutateKeyword(metaclass=Mutation):
