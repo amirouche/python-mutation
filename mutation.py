@@ -232,16 +232,18 @@ class Mutation(type):
 class StatementDrop(metaclass=Mutation):
 
     deadcode_detection = True
-    KEYWORD_PASS = parso.parse("pass").children[0]
 
     def predicate(self, node):
-        return "stmt" in node.type
+        return "stmt" in node.type and node.type != "expr_stmt"
 
     def mutate(self, node, index):
-        root, node = node_copy_tree(node, index)
-        index = node.parent.children.index(node)
-        node.parent.children[index] = type(self).KEYWORD_PASS
-        yield root, node
+        log.warning(node.type)
+        root, new = node_copy_tree(node, index)
+        index = new.parent.children.index(new)
+        passi = parso.parse("pass").children[0]
+        passi.prefix = new.get_first_leaf().prefix
+        new.parent.children[index] = passi
+        yield root, new
 
 
 class DefinitionDrop(metaclass=Mutation):
