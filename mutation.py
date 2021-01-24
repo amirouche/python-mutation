@@ -602,7 +602,7 @@ async def _main(loop, arguments):
     command = command + [
         # Use pytest-xdist to make sure it is possible to run the
         # tests in parallel
-        "--numprocesses=2",
+        "--numprocesses={}".format(max_workers),
         # Petup coverage options to only mutate what is tested.
         "--cov=.",
         "--cov-branch",
@@ -624,8 +624,6 @@ async def _main(loop, arguments):
 
         command = arguments["TEST-COMMAND"] or PYTEST
         command = command + [
-            # Force numprocesses to one
-            "--numprocesses=1",
             # Setup coverage options to only mutate what is tested.
             "--cov=.",
             "--cov-branch",
