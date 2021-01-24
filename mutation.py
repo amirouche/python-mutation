@@ -412,7 +412,9 @@ def deltas_compute(source, path, coverage, mutations):
             if is_interesting(new_node, coverage):
                 msg = "Ignoring mutation because there is no coverage:"
                 msg += " path={}, line={}"
-                log.trace(msg, path, getattr(new_node, "line", "unknown"))
+                line = getattr(new_node, "line", False)
+                line = line or new_node.get_first_leaf().line
+                log.trace(msg, path, line)
                 continue
             target = root.get_code()
             delta = diff(source, target, path)
@@ -520,7 +522,7 @@ def for_each_par_map(loop, pool, inc, proc, items):
     return out
 
 
-def run(args):  # TODO: rename
+def mutation_test(args):  # TODO: rename
     command, uid, timeout = args
     command = command + ["--mutation={}".format(uid.hex)]
     try:
@@ -654,7 +656,7 @@ def play_test_tests(root, seed, repository, arguments):
         out = run(command)
 
     if out == 0:
-        log.info("Tests are green!")
+        log.info("Tests are green 💚")
         alpha = alpha() * 2
     else:
         msg = "Tests are not green or something... return code is {}..."
@@ -692,6 +694,14 @@ def play_test_tests(root, seed, repository, arguments):
     return alpha, max_workers
 
 
+def mutation_only_deadcode(x):
+    return getattr(x, "deadcode_detection", False)
+
+
+def mutation_all(x):
+    return True
+
+
 async def play_create_mutations(loop, root, db, repository, max_workers, arguments):
     # Go through all blobs in head, and produce mutations, take into
     # account include pattern, and exclude patterns.  Also, exclude
@@ -711,25 +721,20 @@ async def play_create_mutations(loop, root, db, repository, max_workers, argumen
     coverage = coverage_read(root)
     only_dead_code = arguments["--only-deadcode-detection"]
     if only_dead_code:
-
-        def node_predicate(x):
-            return getattr(x, "deadcode_detection", False)
-
+        mutation_predicate = mutation_only_deadcode
     else:
-
-        def node_predicate(x):
-            return True
+        mutation_predicate = mutation_all
 
     def make_item(blob):
         out = (
             blob.path,
             blob.data_stream.read().decode("utf8"),
             coverage.get(blob.path, set()),
-            node_predicate,
+            mutation_predicate,
         )
         return out
 
-    items = (make_item(blob) for blob in blobs)
+    items = (make_item(blob) for blob in blobs if coverage.get(blob.path, set()))
 
     # prepare to create mutations
     total = 0
@@ -766,7 +771,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
     # sampling
     sampling = arguments["--sampling"]
-    total, sampler = sampling_setup(sampling)
+    total, sampler = sampling_setup(sampling, total)
     uids = sampler(uids)
 
     for speed in [10_000, 1_000, 100, 10, 1]:
@@ -832,9 +837,9 @@ async def play(loop, arguments):
     alpha, max_workers = play_test_tests(root, seed, repository, arguments)
 
     with database_open(root, recreate=True) as db:
-        await play_create_mutations(loop, root, db, repository, max_workers, arguments)
+        count = await play_create_mutations(loop, root, db, repository, max_workers, arguments)
         errors = await play_mutations(
-            loop, db, seed, alpha, total, max_workers, arguments
+            loop, db, seed, alpha, count, max_workers, arguments
         )
 
     sys.exit(1 if errors else 0)
