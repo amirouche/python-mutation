@@ -434,6 +434,11 @@ async def pool_for_each_par_map(loop, pool, f, p, iterator):
 
 def mutation_create(item):
     path, source, coverage, mutation_predicate = item
+
+    if not coverage:
+        log.trace("Ignoring file {} because there is no associated coverage.", path)
+        return []
+
     log.trace("Mutating file: {}...", path)
     mutations = [m for m in Mutation.ALL if mutation_predicate(m)]
     deltas = deltas_compute(source, path, coverage, mutations)
