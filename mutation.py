@@ -644,7 +644,7 @@ def play_test_tests(root, seed, repository, arguments):
 
     if out == 0:
         log.info("Tests are green 💚")
-        alpha = alpha() * 2
+        alpha = alpha() * max_workers
     else:
         msg = "Tests are not green or something... return code is {}..."
         log.warning(msg, out)
