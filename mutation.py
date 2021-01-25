@@ -166,24 +166,7 @@ def node_iter(node, level=1):
     yield node
     for child in node.children:
         level += 1
-        if child.type == "endmarker":
-            yield child
-            continue
-        if child.type == "number":
-            yield child
-            continue
-        if child.type == "string":
-            yield child
-            continue
-        if child.type == "newline":
-            continue
-        if child.type == "operator":
-            yield child
-            continue
-        if child.type == "keyword":
-            yield child
-            continue
-        if child.type == "name":
+        if not getattr(child, "children", False):
             yield child
             continue
 
