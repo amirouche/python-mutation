@@ -49,7 +49,7 @@ from loguru import logger as log
 from lsm import LSM
 from ulid import ULID
 
-__version__ = (0, 2, 10)
+__version__ = (0, 2, 11)
 
 
 MINUTE = 60  # seconds
@@ -625,7 +625,7 @@ def play_test_tests(root, seed, repository, arguments):
         log.error("<file-or-directory> and TEST-COMMAND are exclusive!")
         sys.exit(1)
 
-    command = arguments["TEST-COMMAND"] or PYTEST
+    command = list(arguments["TEST-COMMAND"] or PYTEST)
     command.extend([
         # Use pytest-xdist to make sure it is possible to run the
         # tests in parallel
@@ -650,7 +650,7 @@ def play_test_tests(root, seed, repository, arguments):
         log.warning(msg, out)
         log.warning("I tried the following command: `{}`", " ".join(command))
 
-        command = arguments["TEST-COMMAND"] or PYTEST
+        command = list(arguments["TEST-COMMAND"] or PYTEST)
         command = command + [
             # Setup coverage options to only mutate what is tested.
             "--cov=.",
@@ -675,7 +675,7 @@ def play_test_tests(root, seed, repository, arguments):
         max_workers = 1
         alpha = alpha()
 
-    msg = "Time required to run the full test suite once: {}..."
+    msg = "Time required to run the tests once: {}..."
     log.info(msg, humanize(alpha))
 
     return alpha, max_workers
@@ -754,7 +754,7 @@ async def play_create_mutations(loop, root, db, repository, max_workers, argumen
 
 async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     # prepare to run tests against mutations
-    command = arguments["TEST-COMMAND"] or PYTEST
+    command = list(arguments["TEST-COMMAND"] or PYTEST)
     command.append("--randomly-seed={}".format(seed))
 
     timeout = alpha * 2
@@ -814,16 +814,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
 async def play(loop, arguments):
     # TODO: Always use git HEAD, and display a message as critical
-    #       explaining what is happenning...
-    #
-    # TODO: mutation run -n ie. dryrun: display files taken into consideration
-    #
-    # TODO: use transactions to make tests as failed...
-    #
-    # TODO: mutation show all to display all failed tests with diff.
-    #
-    # TODO: pass plain foobar to pytest and capture output and store
-    #       it when test is failed.
+    #       explaining what is happenning... Not sure about that.
 
     root = Path(".").resolve()
     repository = git_open(root)
@@ -833,11 +824,6 @@ async def play(loop, arguments):
     random.seed(seed)
 
     alpha, max_workers = play_test_tests(root, seed, repository, arguments)
-
-    # TODO: Benchmark to know the optimal number of workers
-    #       do the same in replay.
-    # if max_workers != 1:
-    #     max_workers = await play_benchmark()
 
     with database_open(root, recreate=True) as db:
         count = await play_create_mutations(loop, root, db, repository, max_workers, arguments)
@@ -857,9 +843,9 @@ def mutation_diff_size(db, uid):
 def replay_mutation(db, uid, alpha, seed, max_workers, arguments):
     print("* Use Ctrl+C to exit.")
 
-    repository = git_open(".").index
+    repository = git_open(".")
 
-    command = arguments["TEST-COMMAND"] or PYTEST
+    command = list(arguments["TEST-COMMAND"] or PYTEST)
     command.append("--randomly-seed={}".format(seed))
     max_workers = 1
     if max_workers > 1:
