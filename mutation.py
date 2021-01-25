@@ -721,7 +721,8 @@ async def play_create_mutations(loop, root, db, repository, max_workers, argumen
         )
         return out
 
-    items = [make_item(blob) for blob in blobs if coverage.get(blob.path, set())]
+    items = (make_item(blob) for blob in blobs if coverage.get(blob.path, set()))
+    items = sorted(items, key=lambda x: len(x[1]), reverse=True)
 
     # prepare to create mutations
     total = 0
