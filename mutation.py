@@ -31,8 +31,6 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
 from difflib import unified_diff
-from importlib.abc import SourceLoader
-from importlib.machinery import FileFinder
 from pathlib import Path
 from uuid import UUID
 
@@ -50,7 +48,7 @@ from lsm import LSM
 from tqdm import tqdm
 from ulid import ULID
 
-__version__ = (0, 3, 2)
+__version__ = (0, 3, 3)
 
 
 MINUTE = 60  # seconds
@@ -514,7 +512,7 @@ def mutation_pass(args):  # TODO: rename
 
     if out == 0:
         msg = "no error with mutation: {}"
-        log.error(msg, " ".join(command))
+        log.trace(msg, " ".join(command))
         with database_open(".") as db:
             db[lexode.pack([2, uid])] = b"\x00"
         return False
@@ -794,11 +792,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     sampler, total = sampling_setup(sampling, total)
     uids = sampler(uids)
 
-    for speed in [10_000, 1_000, 100, 10, 1]:
-        if total // speed == 0:
-            continue
-        step = speed
-        break
+    step = 10
 
     gamma = time.perf_counter()
 
@@ -810,14 +804,17 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
         def on_progress(_):
             nonlocal remaining
+            nonlocal step
+            nonlocal gamma
 
             remaining -= 1
 
-            if (remaining % step) == 0 or (total - remaining == 10):
+            if (remaining % step) == 0:
+
                 percent = 100 - ((remaining / total) * 100)
                 now = time.perf_counter()
                 delta = now - gamma
-                eta = (delta / (total - remaining)) * remaining
+                eta = (delta / step) * remaining
 
                 progress.update(int(percent))
                 progress.set_description("ETA {}".format(humanize(eta)))
@@ -825,6 +822,14 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
                 msg = "Mutation tests {:.2f}% done..."
                 log.debug(msg, percent)
                 log.debug("ETA {}...", humanize(eta))
+
+                for speed in [10_000, 1_000, 100, 10, 1]:
+                    if total // speed == 0:
+                        continue
+                    step = speed
+                    break
+
+                gamma = time.perf_counter()
 
         with timeit() as delta:
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
