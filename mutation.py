@@ -13,10 +13,9 @@ Options:
   -h --help     Show this screen.
   --version     Show version.
 """
-from tqdm import tqdm
-import functools
 import asyncio
 import fnmatch
+import functools
 import itertools
 import os
 import random
@@ -47,8 +46,8 @@ from docopt import docopt
 from humanize import precisedelta
 from loguru import logger as log
 from lsm import LSM
+from tqdm import tqdm
 from ulid import ULID
-
 
 __version__ = (0, 3, 1)
 
@@ -637,11 +636,13 @@ def play_test_tests(root, seed, repository, arguments, command=None):
 
     if command is not None:
         if max_workers > 1:
-            command.extend([
-                # Use pytest-xdist to make sure it is possible to run the
-                # tests in parallel
-                "--numprocesses={}".format(max_workers),
-            ])
+            command.extend(
+                [
+                    # Use pytest-xdist to make sure it is possible to run the
+                    # tests in parallel
+                    "--numprocesses={}".format(max_workers),
+                ]
+            )
     else:
         command = list(arguments["TEST-COMMAND"] or PYTEST)
         if max_workers > 1:
@@ -650,14 +651,16 @@ def play_test_tests(root, seed, repository, arguments, command=None):
                 # the tests in parallel
                 "--numprocesses={}".format(max_workers)
             )
-        command.extend([
-            # Setup coverage options to only mutate what is tested.
-            "--cov=.",
-            "--cov-branch",
-            "--no-cov-on-fail",
-            # Pass random seed
-            "--randomly-seed={}".format(seed),
-        ])
+        command.extend(
+            [
+                # Setup coverage options to only mutate what is tested.
+                "--cov=.",
+                "--cov-branch",
+                "--no-cov-on-fail",
+                # Pass random seed
+                "--randomly-seed={}".format(seed),
+            ]
+        )
         command.extend(arguments["<file-or-directory>"])
 
     with timeit() as alpha:
@@ -781,7 +784,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     command.append("--randomly-seed={}".format(seed))
 
     timeout = alpha * 2
-    uids = db[lexode.pack([1]):lexode.pack([2])]
+    uids = db[lexode.pack([1]) : lexode.pack([2])]
     uids = ((command, lexode.unpack(key)[1], timeout) for (key, _) in uids)
 
     # sampling
@@ -823,9 +826,11 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
         with timeit() as delta:
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-                await pool_for_each_par_map(loop, pool, on_progress, mutation_pass, uids)
+                await pool_for_each_par_map(
+                    loop, pool, on_progress, mutation_pass, uids
+                )
 
-        errors = len(list(db[lexode.pack([2]):lexode.pack([3])]))
+        errors = len(list(db[lexode.pack([2]) : lexode.pack([3])]))
 
     if errors > 0:
         msg = "It took {} to compute {} mutation failures!"
@@ -860,13 +865,13 @@ async def play(loop, arguments):
             seed=seed,
         )
         value = list(command.items())
-        db[lexode.pack((0, 'command'))] = lexode.pack(value)
+        db[lexode.pack((0, "command"))] = lexode.pack(value)
 
         # let's play!
-        count = await play_create_mutations(loop, root, db, repository, max_workers, arguments)
-        await play_mutations(
-            loop, db, seed, alpha, count, max_workers, arguments
+        count = await play_create_mutations(
+            loop, root, db, repository, max_workers, arguments
         )
+        await play_mutations(loop, db, seed, alpha, count, max_workers, arguments)
 
 
 def mutation_diff_size(db, uid):
@@ -892,7 +897,7 @@ def replay_mutation(db, uid, alpha, seed, max_workers, arguments):
         if not ok:
             msg = "* Type 'skip' to go to next mutation or just enter to retry."
             print(msg)
-            retry = input("> ") == 'retry'
+            retry = input("> ") == "retry"
             if not retry:
                 return
             # Otherwise loop to re-test...
@@ -916,7 +921,7 @@ def replay(arguments):
     repository = git_open(root)
 
     with database_open(root) as db:
-        command = db[lexode.pack((0, 'command'))]
+        command = db[lexode.pack((0, "command"))]
 
     command = lexode.unpack(command)
     command = dict(command)
@@ -928,11 +933,9 @@ def replay(arguments):
 
     with database_open(root) as db:
         while True:
-            uids = (lexode.unpack(key)[1] for key, _ in db[lexode.pack([2]):])
+            uids = (lexode.unpack(key)[1] for key, _ in db[lexode.pack([2]) :])
             uids = sorted(
-                uids,
-                key=functools.partial(mutation_diff_size, db),
-                reverse=True
+                uids, key=functools.partial(mutation_diff_size, db), reverse=True
             )
             if not uids:
                 log.info("No mutation failures 👍")
