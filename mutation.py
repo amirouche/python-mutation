@@ -50,7 +50,7 @@ from lsm import LSM
 from ulid import ULID
 
 
-__version__ = (0, 3, 0)
+__version__ = (0, 3, 1)
 
 
 MINUTE = 60  # seconds
