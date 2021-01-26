@@ -50,7 +50,7 @@ from lsm import LSM
 from tqdm import tqdm
 from ulid import ULID
 
-__version__ = (0, 3, 1)
+__version__ = (0, 3, 2)
 
 
 MINUTE = 60  # seconds
@@ -525,7 +525,7 @@ def mutation_pass(args):  # TODO: rename
         return True
 
 
-PYTEST = "pytest --exitfirst --tb=no --quiet --assert=plain"
+PYTEST = "pytest --exitfirst --no-header --tb=no --quiet --assert=plain"
 PYTEST = shlex.split(PYTEST)
 
 
@@ -569,8 +569,8 @@ def run(command, timeout=None):
     try:
         out = subprocess.run(
             command,
-            # stdout=subprocess.DEVNULL,
-            # stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=None,
         )
     except Exception:
@@ -877,17 +877,17 @@ async def play(loop, arguments):
 
 
 def mutation_diff_size(db, uid):
-    _, diff = lexode.unpack(db[lexode.pack([1, uid])])
+    _, diff = lexode.unpack(db[lexode.pack([1, uid[0]])])
     out = len(zstd.decompress(diff))
     return out
 
 
-def replay_mutation(db, uid, alpha, seed, max_workers, arguments):
+def replay_mutation(db, uid, alpha, seed, max_workers, command):
     print("* Use Ctrl+C to exit.")
 
     repository = git_open(".")
 
-    command = list(arguments["TEST-COMMAND"] or PYTEST)
+    command = list(command)
     command.append("--randomly-seed={}".format(seed))
 
     max_workers = 1
@@ -950,7 +950,7 @@ def replay(arguments):
                 sys.exit(0)
             while uids:
                 uid = uids.pop(0)
-                replay_mutation(db, uid, alpha, max_workers)
+                replay_mutation(db, uid, alpha, seed, max_workers, command)
 
 
 def mutation_list():
@@ -958,14 +958,14 @@ def mutation_list():
         uids = ((lexode.unpack(k)[1], v) for k, v in db[lexode.pack([2]):])
         uids = sorted(
             uids,
-            key=lambda x: mutation_diff_size(x[0], db),
+            key=functools.partial(mutation_diff_size, db),
             reverse=True
         )
     if not uids:
         log.info("No mutation failures 👍")
         sys.exit(0)
     for (uid, type) in uids:
-        print("{}\n{}".format(uid.hex, "skipped" if type == b"\x01" else ""))
+        print("{}\t{}".format(uid.hex, "skipped" if type == b"\x01" else ""))
 
 
 def mutation_show(uid):
