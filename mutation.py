@@ -518,7 +518,6 @@ def mutation_pass(args):  # TODO: rename
         log.error(msg, " ".join(command))
         with database_open(".") as db:
             db[lexode.pack([2, uid])] = b"\x42"
-        mutation_show(uid.hex)
         return False
     else:
         # TODO: pass root path...
@@ -895,6 +894,7 @@ def replay_mutation(db, uid, alpha, seed, max_workers, arguments):
     while True:
         ok = mutation_pass((command, uid, timeout))
         if not ok:
+            mutation_show(uid.hex)
             msg = "* Type 'skip' to go to next mutation or just enter to retry."
             print(msg)
             retry = input("> ") == "retry"
