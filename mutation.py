@@ -3,8 +3,8 @@
 Usage:
   mutation play [--verbose] [--exclude=<globs>] [--only-deadcode-detection] [--include=<globs>] [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
   mutation replay
-  mutation show failed
   mutation show MUTATION
+  mutation apply MUTATION
   mutation (-h | --help)
   mutation --version
 
@@ -983,6 +983,18 @@ def mutation_show(uid):
     diff_highlight(diff)
 
 
+def mutation_apply(uid):
+    uid = UUID(hex=uid)
+    with database_open(".") as db:
+        path, diff = lexode.unpack(db[lexode.pack([1, uid])])
+    diff = zstd.decompress(diff).decode("utf8")
+    with open(path, 'r') as f:
+        source = f.read()
+    patched = patch(diff, source)
+    with open(path, 'w') as f:
+        f.write(patched)
+
+
 def main():
     arguments = docopt(__doc__, version=__version__)
 
@@ -1005,6 +1017,10 @@ def main():
         sys.exit(0)
 
     if arguments.get("show", False):
+        mutation_show(arguments["MUTATION"])
+        sys.exit(0)
+
+    if arguments.get("apply", False):
         mutation_show(arguments["MUTATION"])
         sys.exit(0)
 
