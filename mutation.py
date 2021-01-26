@@ -49,7 +49,8 @@ from loguru import logger as log
 from lsm import LSM
 from ulid import ULID
 
-__version__ = (0, 2, 11)
+
+__version__ = (0, 3, 0)
 
 
 MINUTE = 60  # seconds
@@ -548,6 +549,10 @@ def database_open(root, recreate=False):
         for file in root.glob(".mutation.okvslite*"):
             file.unlink()
 
+    if not recreate and not db.exists():
+        log.error("No database, can not proceed!")
+        sys.exit(1)
+
     db = LSM(str(db))
 
     return db
@@ -613,7 +618,7 @@ def sampling_setup(sampling, total):
     return sampler, total
 
 
-def play_test_tests(root, seed, repository, arguments):
+def play_test_tests(root, seed, repository, arguments, command=None):
     max_workers = arguments["--max-workers"] or (os.cpu_count() - 1) or 1
     max_workers = int(max_workers)
 
@@ -630,19 +635,30 @@ def play_test_tests(root, seed, repository, arguments):
         log.error("<file-or-directory> and TEST-COMMAND are exclusive!")
         sys.exit(1)
 
-    command = list(arguments["TEST-COMMAND"] or PYTEST)
-    command.extend([
-        # Use pytest-xdist to make sure it is possible to run the
-        # tests in parallel
-        "--numprocesses={}".format(max_workers),
-        # Petup coverage options to only mutate what is tested.
-        "--cov=.",
-        "--cov-branch",
-        "--no-cov-on-fail",
-        # Pass random seed
-        "--randomly-seed={}".format(seed),
-    ])
-    command.extend(arguments["<file-or-directory>"])
+    if command is not None:
+        if max_workers > 1:
+            command.extend([
+                # Use pytest-xdist to make sure it is possible to run the
+                # tests in parallel
+                "--numprocesses={}".format(max_workers),
+            ])
+    else:
+        command = list(arguments["TEST-COMMAND"] or PYTEST)
+        if max_workers > 1:
+            command.append(
+                # Use pytest-xdist to make sure it is possible to run
+                # the tests in parallel
+                "--numprocesses={}".format(max_workers)
+            )
+        command.extend([
+            # Setup coverage options to only mutate what is tested.
+            "--cov=.",
+            "--cov-branch",
+            "--no-cov-on-fail",
+            # Pass random seed
+            "--randomly-seed={}".format(seed),
+        ])
+        command.extend(arguments["<file-or-directory>"])
 
     with timeit() as alpha:
         out = run(command)
@@ -664,6 +680,7 @@ def play_test_tests(root, seed, repository, arguments):
             # Pass random seed
             "--randomly-seed={}".format(seed),
         ]
+        command += arguments["<file-or-directory>"]
 
         with timeit() as alpha:
             out = run(command)
@@ -764,7 +781,8 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     command.append("--randomly-seed={}".format(seed))
 
     timeout = alpha * 2
-    uids = ((command, lexode.unpack(key)[1], timeout) for (key, _) in db)
+    uids = db[lexode.pack([1]):lexode.pack([2])]
+    uids = ((command, lexode.unpack(key)[1], timeout) for (key, _) in uids)
 
     # sampling
     sampling = arguments["--sampling"]
@@ -779,7 +797,6 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
     gamma = time.perf_counter()
 
-    errors = False
     remaining = total
 
     log.info("Testing mutations in progress...")
@@ -788,9 +805,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
         def on_progress(_):
             nonlocal remaining
-            nonlocal errors
 
-            errors = True
             remaining -= 1
 
             if (remaining % step) == 0 or (total - remaining == 10):
@@ -810,7 +825,12 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
                 await pool_for_each_par_map(loop, pool, on_progress, mutation_pass, uids)
 
-    if not errors:
+        errors = len(list(db[lexode.pack([2]):lexode.pack([3])]))
+
+    if errors > 0:
+        msg = "It took {} to compute {} mutation failures!"
+        log.error(msg, humanize(delta()), errors)
+    else:
         msg = "Checking that the test suite is strong against mutations took:"
         msg += " {}... And it is a success 💚"
         log.info(msg, humanize(delta()))
@@ -832,12 +852,21 @@ async def play(loop, arguments):
     alpha, max_workers = play_test_tests(root, seed, repository, arguments)
 
     with database_open(root, recreate=True) as db:
+        # store arguments used to execute command
+        command = list(arguments["TEST-COMMAND"] or PYTEST)
+        command += arguments["<file-or-directory>"]
+        command = dict(
+            command=command,
+            seed=seed,
+        )
+        value = list(command.items())
+        db[lexode.pack((0, 'command'))] = lexode.pack(value)
+
+        # let's play!
         count = await play_create_mutations(loop, root, db, repository, max_workers, arguments)
-        errors = await play_mutations(
+        await play_mutations(
             loop, db, seed, alpha, count, max_workers, arguments
         )
-
-    sys.exit(1 if errors else 0)
 
 
 def mutation_diff_size(db, uid):
@@ -884,12 +913,18 @@ def replay_mutation(db, uid, alpha, seed, max_workers, arguments):
 
 def replay(arguments):
     root = Path(".").resolve()
-    seed = arguments["--randomly-seed"] or int(time.time())
-    log.info("Using random seed: {}".format(seed))
-    random.seed(seed)
     repository = git_open(root)
 
-    alpha, max_workers = play_test_tests(root, seed, repository, arguments)
+    with database_open(root) as db:
+        command = db[lexode.pack((0, 'command'))]
+
+    command = lexode.unpack(command)
+    command = dict(command)
+    seed = command.pop("seed")
+    random.seed(seed)
+    command = command.pop("command")
+
+    alpha, max_workers = play_test_tests(root, seed, repository, arguments, command)
 
     with database_open(root) as db:
         while True:
