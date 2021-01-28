@@ -2,7 +2,7 @@
 
 Usage:
   mutation play [--verbose] [--exclude=<globs>] [--only-deadcode-detection] [--include=<globs>] [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
-  mutation replay
+  mutation replay [--verbose] [--max_workers=<n>]
   mutation list
   mutation show MUTATION
   mutation apply MUTATION
@@ -22,7 +22,6 @@ import os
 import random
 import re
 import shlex
-import subprocess
 import sys
 import time
 from ast import Constant
@@ -31,7 +30,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
 from difflib import unified_diff
-from pathlib import Path
+from pathlib3x import Path
 from uuid import UUID
 
 import git
@@ -48,7 +47,7 @@ from lsm import LSM
 from tqdm import tqdm
 from ulid import ULID
 
-__version__ = (0, 3, 3)
+__version__ = (0, 4, 0)
 
 
 MINUTE = 60  # seconds
@@ -267,13 +266,17 @@ class MutateNumber(metaclass=Mutation):
             def randomize(x):
                 return random.random() * x
 
-        for size in range(6):
+        for size in range(8, 32):
             if value < 2 ** size:
                 break
 
-        for _ in range(type(self).COUNT):
+        count = 0
+        while count != self.COUNT:
+            count += 1
             root, new = node_copy_tree(node, index)
             new.value = str(randomize(2 ** size))
+            if new.value == node.value:
+                continue
             yield root, new
 
 
@@ -400,7 +403,8 @@ def deltas_compute(source, path, coverage, mutations):
             delta = diff(source, target, path)
             yield delta
     if ignored > 1:
-        msg = "Ignored {} mutations from file at {} because there is no associated coverage."
+        msg = "Ignored {} mutations from file at {}"
+        msg += " because there is no associated coverage."
         log.trace(msg, ignored, path)
 
 
@@ -435,7 +439,8 @@ def mutation_create(item):
     path, source, coverage, mutation_predicate = item
 
     if not coverage:
-        log.trace("Ignoring file {} because there is no associated coverage.", path)
+        msg = "Ignoring file {} because there is no associated coverage."
+        log.trace(msg, path)
         return []
 
     log.trace("Mutating file: {}...", path)
@@ -463,26 +468,33 @@ def install_module_loader(uid):
     patched = patch(diff, source)
 
     import imp
-    module_path = path[:-3].replace('/', '.')
 
-    class MyLoader:
-        def load_module(self, fullname):
-            try:
-                return sys.modules[fullname]
-            except KeyError:
-                pass
-            my_module = imp.new_module(fullname)
-            exec(patched, my_module.__dict__)
-            sys.modules.setdefault(fullname, my_module)
-            return my_module
+    components = path[:-3].split('/')
+    log.trace(components)
+    while components:
+        for pythonpath in sys.path:
+            filepath = os.path.join(pythonpath, '/'.join(components))
+            filepath += ".py"
+            ok = os.path.exists(filepath)
+            if ok:
+                module_path = '.'.join(components)
+                break
+        else:
+            components.pop()
+            continue
+        break
+    if module_path is None:
+        raise Exception("sys.path oops!")
+    log.warning(module_path)
 
-    class MyFinder:
-        def find_module(self, fullname, path=None):
-            if fullname == module_path:
-                return MyLoader()
-            return None
+    patched_module = imp.new_module(module_path)
+    try:
+        exec(patched, patched_module.__dict__)
+    except Exception:
+        # TODO: syntaxerror, do not produce those mutations
+        exec('', patched_module.__dict__)
 
-    sys.meta_path.insert(0, MyFinder())
+    sys.modules[module_path] = patched_module
 
 
 def pytest_configure(config):
@@ -508,11 +520,10 @@ def for_each_par_map(loop, pool, inc, proc, items):
 def mutation_pass(args):  # TODO: rename
     command, uid, timeout = args
     command = command + ["--mutation={}".format(uid.hex)]
-    out = run(command, timeout=timeout)
-
+    out = run(command, timeout=timeout, silent=True)
     if out == 0:
-        msg = "no error with mutation: {}"
-        log.trace(msg, " ".join(command))
+        msg = "no error with mutation: {} ({})"
+        log.trace(msg, " ".join(command), out)
         with database_open(".") as db:
             db[lexode.pack([2, uid])] = b"\x00"
         return False
@@ -532,6 +543,8 @@ def coverage_read(root):
     coverage.load()
     data = coverage.get_data()
     files = data.measured_files()
+    # TODO: if coverage contains files outside git repo, it will raise
+    # an exception.
     out = {str(Path(path).relative_to(root)): set(data.lines(path)) for path in files}
     return out
 
@@ -563,18 +576,19 @@ def git_open(root):
         return repository
 
 
-def run(command, timeout=None):
-    try:
-        out = subprocess.run(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=None,
-        )
-    except Exception:
-        return -1
-    else:
-        return out.returncode
+def run(command, timeout=None, silent=True):
+    if timeout and timeout < 60:
+        timeout = 60
+
+    if timeout:
+        command.insert(0, "timeout {}".format(timeout))
+
+    command.insert(0, "PYTHONDONTWRITEBYTECODE=1")
+
+    if silent and not os.environ.get("DEBUG"):
+        command.append("> /dev/null 2>&1")
+
+    return os.system(" ".join(command))
 
 
 def sampling_setup(sampling, total):
@@ -616,24 +630,20 @@ def sampling_setup(sampling, total):
     return sampler, total
 
 
-def play_test_tests(root, seed, repository, arguments, command=None):
+# TODO: the `command` is a hack, maybe there is a way to avoid the
+# following code that looks like `if command is not None.
+def check_tests(root, seed, repository, arguments, command=None):
     max_workers = arguments["--max-workers"] or (os.cpu_count() - 1) or 1
     max_workers = int(max_workers)
 
     log.info("Let's check that the tests are green...")
-    #
-    # TODO: use the coverage program instead with something along the
-    # lines of:
-    #
-    #   coverage run --omit=tests.py --include=hoply*.py -m pytest tests.py
-    #
-    # To be able to pass --omit and --include.
-    #
+
     if arguments["<file-or-directory>"] and arguments["TEST-COMMAND"]:
         log.error("<file-or-directory> and TEST-COMMAND are exclusive!")
         sys.exit(1)
 
     if command is not None:
+        command = list(command)
         if max_workers > 1:
             command.extend(
                 [
@@ -643,13 +653,19 @@ def play_test_tests(root, seed, repository, arguments, command=None):
                 ]
             )
     else:
-        command = list(arguments["TEST-COMMAND"] or PYTEST)
+        if arguments["TEST-COMMAND"]:
+            command = list(arguments["TEST-COMMAND"])
+        else:
+            command = list(PYTEST)
+            command.extend(arguments["<file-or-directory>"])
+
         if max_workers > 1:
             command.append(
                 # Use pytest-xdist to make sure it is possible to run
                 # the tests in parallel
                 "--numprocesses={}".format(max_workers)
             )
+
         command.extend(
             [
                 # Setup coverage options to only mutate what is tested.
@@ -660,7 +676,6 @@ def play_test_tests(root, seed, repository, arguments, command=None):
                 "--randomly-seed={}".format(seed),
             ]
         )
-        command.extend(arguments["<file-or-directory>"])
 
     with timeit() as alpha:
         out = run(command)
@@ -669,12 +684,18 @@ def play_test_tests(root, seed, repository, arguments, command=None):
         log.info("Tests are green 💚")
         alpha = alpha() * max_workers
     else:
-        msg = "Tests are not green or something... return code is {}..."
+        msg = "Tests are not green... return code is {}..."
         log.warning(msg, out)
         log.warning("I tried the following command: `{}`", " ".join(command))
 
-        command = list(arguments["TEST-COMMAND"] or PYTEST)
-        command = command + [
+        # Same command without parallelization
+        if arguments["TEST-COMMAND"]:
+            command = list(arguments["TEST-COMMAND"])
+        else:
+            command = list(PYTEST)
+            command.extend(arguments["<file-or-directory>"])
+
+        command += [
             # Setup coverage options to only mutate what is tested.
             "--cov=.",
             "--cov-branch",
@@ -682,7 +703,6 @@ def play_test_tests(root, seed, repository, arguments, command=None):
             # Pass random seed
             "--randomly-seed={}".format(seed),
         ]
-        command += arguments["<file-or-directory>"]
 
         with timeit() as alpha:
             out = run(command)
@@ -695,7 +715,8 @@ def play_test_tests(root, seed, repository, arguments, command=None):
 
         # Otherwise, it is possible to run the tests but without
         # parallelization.
-        log.info("Overriding max_workers=1 because tests do not pass in parallel")
+        msg = "Setting max_workers=1 because tests do not pass in parallel"
+        log.warning(msg)
         max_workers = 1
         alpha = alpha()
 
@@ -746,12 +767,15 @@ async def play_create_mutations(loop, root, db, repository, max_workers, argumen
         return out
 
     items = (make_item(blob) for blob in blobs if coverage.get(blob.path, set()))
+    # Start with biggest files first, because that is those that will
+    # take most time, that way, it will make most / best use of the
+    # workers.
     items = sorted(items, key=lambda x: len(x[1]), reverse=True)
 
     # prepare to create mutations
     total = 0
 
-    log.info("Creating mutations from {} files...", len(items))
+    log.info("Crafting mutations from {} files...", len(items))
     with tqdm(total=len(items), desc="Files") as progress:
 
         def on_mutations_created(items):
@@ -783,8 +807,11 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     command.append("--randomly-seed={}".format(seed))
     command.extend(arguments["<file-or-directory>"])
 
+    eta = humanize(alpha * total / max_workers)
+    log.success("It will take at most {} to run the mutations", eta)
+
     timeout = alpha * 2
-    uids = db[lexode.pack([1]) : lexode.pack([2])]
+    uids = db[lexode.pack([1]):lexode.pack([2])]
     uids = ((command, lexode.unpack(key)[1], timeout) for (key, _) in uids)
 
     # sampling
@@ -851,9 +878,6 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
 
 async def play(loop, arguments):
-    # TODO: Always use git HEAD, and display a message as critical
-    #       explaining what is happenning... Not sure about that.
-
     root = Path(".").resolve()
     repository = git_open(root)
 
@@ -861,12 +885,15 @@ async def play(loop, arguments):
     log.info("Using random seed: {}".format(seed))
     random.seed(seed)
 
-    alpha, max_workers = play_test_tests(root, seed, repository, arguments)
+    alpha, max_workers = check_tests(root, seed, repository, arguments)
 
     with database_open(root, recreate=True) as db:
         # store arguments used to execute command
-        command = list(arguments["TEST-COMMAND"] or PYTEST)
-        command += arguments["<file-or-directory>"]
+        if arguments["TEST-COMMAND"]:
+            command = list(arguments["TEST-COMMAND"])
+        else:
+            command = list(PYTEST)
+            command += arguments["<file-or-directory>"]
         command = dict(
             command=command,
             seed=seed,
@@ -874,21 +901,22 @@ async def play(loop, arguments):
         value = list(command.items())
         db[lexode.pack((0, "command"))] = lexode.pack(value)
 
-        # let's play!
+        # let's create mutations!
         count = await play_create_mutations(
             loop, root, db, repository, max_workers, arguments
         )
+        # Let's run tests against mutations!
         await play_mutations(loop, db, seed, alpha, count, max_workers, arguments)
 
 
 def mutation_diff_size(db, uid):
-    _, diff = lexode.unpack(db[lexode.pack([1, uid[0]])])
+    _, diff = lexode.unpack(db[lexode.pack([1, uid])])
     out = len(zstd.decompress(diff))
     return out
 
 
 def replay_mutation(db, uid, alpha, seed, max_workers, command):
-    print("* Use Ctrl+C to exit.")
+    log.info("* Use Ctrl+C to exit.")
 
     repository = git_open(".")
 
@@ -905,8 +933,8 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
         if not ok:
             mutation_show(uid.hex)
             msg = "* Type 'skip' to go to next mutation or just enter to retry."
-            print(msg)
-            skip = input("> ") == "skip"
+            log.info(msg)
+            skip = input() == "skip"
             if skip:
                 db[lexode.pack([2, uid])] = b"\x01"
                 return
@@ -915,13 +943,14 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
             non_indexed = repository.index.diff(None)
             indexed = repository.index.diff("HEAD")
             if indexed or non_indexed:
-                print("* They are uncommited changes, do you want to commit?")
-                yes = input("> ").startswith("y")
+                msg = "* They are uncommited changes, do you want to commit? (yes/no)"
+                log.warning(msg)
+                yes = input().startswith("y")
                 if not yes:
                     return
 
                 for file in non_indexed:
-                    repository.add(file)
+                    repository.index.add(file)
                 repository.index.commit("fixed mutation bug uid={}.".format(uid.hex))
             del db[lexode.pack([2, uid])]
             return
@@ -938,9 +967,9 @@ def replay(arguments):
     command = dict(command)
     seed = command.pop("seed")
     random.seed(seed)
-    command = list(command.pop("command"))
+    command = command.pop("command")
 
-    alpha, max_workers = play_test_tests(root, seed, repository, arguments, command)
+    alpha, max_workers = check_tests(root, seed, repository, arguments, command)
 
     with database_open(root) as db:
         while True:
@@ -963,14 +992,14 @@ def mutation_list():
         uids = ((lexode.unpack(k)[1], v) for k, v in db[lexode.pack([2]):])
         uids = sorted(
             uids,
-            key=functools.partial(mutation_diff_size, db),
+            key=lambda x: mutation_diff_size(db, x[0]),
             reverse=True
         )
     if not uids:
         log.info("No mutation failures 👍")
         sys.exit(0)
     for (uid, type) in uids:
-        print("{}\t{}".format(uid.hex, "skipped" if type == b"\x01" else ""))
+        log.info("{}\t{}".format(uid.hex, "skipped" if type == b"\x01" else ""))
 
 
 def mutation_show(uid):
@@ -1029,6 +1058,7 @@ def main():
         mutation_apply(arguments["MUTATION"])
         sys.exit(0)
 
+    # Otherwise run play.
     loop = asyncio.get_event_loop()
     loop.run_until_complete(play(loop, arguments))
     loop.close()

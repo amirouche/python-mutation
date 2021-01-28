@@ -105,10 +105,21 @@ python-versions = "*"
 pycparser = "*"
 
 [[package]]
+name = "cli-exit-tools"
+version = "1.1.8"
+description = "functions to exit an cli application properly"
+category = "main"
+optional = false
+python-versions = ">=3.6.0"
+
+[package.dependencies]
+click = "*"
+
+[[package]]
 name = "click"
 version = "7.1.2"
 description = "Composable command line interface toolkit"
-category = "dev"
+category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 
@@ -150,17 +161,6 @@ description = "Decorators for Humans"
 category = "dev"
 optional = false
 python-versions = ">=2.6, !=3.0.*, !=3.1.*"
-
-[[package]]
-name = "diff-highlight"
-version = "1.2.0"
-description = "pretty diff highlighter; emphasis changed words in diff"
-category = "main"
-optional = false
-python-versions = "*"
-
-[package.extras]
-testing = ["flake8", "mercurial", "mock", "nose", "six"]
 
 [[package]]
 name = "docopt"
@@ -216,6 +216,22 @@ python-versions = ">=3.6"
 
 [package.extras]
 tests = ["freezegun", "pytest", "pytest-cov"]
+
+[[package]]
+name = "importlib-metadata"
+version = "3.4.0"
+description = "Read metadata from Python packages"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+typing-extensions = {version = ">=3.6.4", markers = "python_version < \"3.8\""}
+zipp = ">=0.5"
+
+[package.extras]
+docs = ["sphinx", "jaraco.packaging (>=8.2)", "rst.linker (>=1.9)"]
+testing = ["pytest (>=3.5,!=3.7.3)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pytest-cov", "pytest-enabler", "packaging", "pep517", "pyfakefs", "flufl.flake8", "pytest-black (>=0.3.7)", "pytest-mypy", "importlib-resources (>=1.3)"]
 
 [[package]]
 name = "iniconfig"
@@ -366,6 +382,18 @@ qa = ["flake8 (==3.8.3)", "mypy (==0.782)"]
 testing = ["docopt", "pytest (<6.0.0)"]
 
 [[package]]
+name = "pathlib3x"
+version = "1.3.9"
+description = "backport of pathlib 3.10 to python 3.6, 3.7, 3.8, 3.9 with a few extensions"
+category = "main"
+optional = false
+python-versions = ">=3.6.0"
+
+[package.dependencies]
+cli-exit-tools = "*"
+click = "*"
+
+[[package]]
 name = "pathspec"
 version = "0.8.1"
 description = "Utility library for gitignore style pattern matching of file paths."
@@ -399,6 +427,9 @@ description = "plugin and hook calling mechanisms for python"
 category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
+
+[package.dependencies]
+importlib-metadata = {version = ">=0.12", markers = "python_version < \"3.8\""}
 
 [package.extras]
 dev = ["pre-commit", "tox"]
@@ -466,6 +497,7 @@ python-versions = ">=3.6"
 atomicwrites = {version = ">=1.0", markers = "sys_platform == \"win32\""}
 attrs = ">=19.2.0"
 colorama = {version = "*", markers = "sys_platform == \"win32\""}
+importlib-metadata = {version = ">=0.12", markers = "python_version < \"3.8\""}
 iniconfig = "*"
 packaging = "*"
 pluggy = ">=0.12,<1.0.0a1"
@@ -511,6 +543,7 @@ optional = false
 python-versions = ">=3.5"
 
 [package.dependencies]
+importlib-metadata = {version = "*", markers = "python_version < \"3.8\""}
 pytest = "*"
 
 [[package]]
@@ -627,7 +660,7 @@ python-versions = "*"
 name = "typing-extensions"
 version = "3.7.4.3"
 description = "Backported and Experimental Type Hints for Python 3.5+"
-category = "dev"
+category = "main"
 optional = false
 python-versions = "*"
 
@@ -651,6 +684,18 @@ python-versions = ">=3.5"
 dev = ["pytest (>=4.6.2)", "black (>=19.3b0)"]
 
 [[package]]
+name = "zipp"
+version = "3.4.0"
+description = "Backport of pathlib-compatible object wrapper for zip files"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.extras]
+docs = ["sphinx", "jaraco.packaging (>=3.2)", "rst.linker (>=1.9)"]
+testing = ["pytest (>=3.5,!=3.7.3)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pytest-cov", "jaraco.test (>=3.2.0)", "jaraco.itertools", "func-timeout", "pytest-black (>=0.3.7)", "pytest-mypy"]
+
+[[package]]
 name = "zstandard"
 version = "0.15.1"
 description = "Zstandard bindings for Python"
@@ -666,8 +711,8 @@ cffi = ["cffi (>=1.11)"]
 
 [metadata]
 lock-version = "1.1"
-python-versions = "^3.8"
-content-hash = "354b8f6a684c5556fff1a8a301d3a394aef6056135f73edfa0974b570db6bae8"
+python-versions = "^3.7"
+content-hash = "217757e0499e27be847632b730cf1af5684b3287be8765ffed9c92dac3608b08"
 
 [metadata.files]
 aiostream = [
@@ -742,6 +787,14 @@ cffi = [
     {file = "cffi-1.14.4-cp39-cp39-win_amd64.whl", hash = "sha256:f032b34669220030f905152045dfa27741ce1a6db3324a5bc0b96b6c7420c87b"},
     {file = "cffi-1.14.4.tar.gz", hash = "sha256:1a465cbe98a7fd391d47dce4b8f7e5b921e6cd805ef421d04f5f66ba8f06086c"},
 ]
+cli-exit-tools = [
+    {file = "cli_exit_tools-1.1.8-py3-none-any.whl", hash = "sha256:e6bb2d990d24bc38ce57484a587a187f4237f118c347c87ba030f8321ee5a5c2"},
+    {file = "cli_exit_tools-1.1.8-py3.6.egg", hash = "sha256:6866bc5d97f091fc72c064b270c88031e91252105bf1c3a044303dc7563b51fe"},
+    {file = "cli_exit_tools-1.1.8-py3.7.egg", hash = "sha256:18526c6068d7f084e3d94fec8f5dd92f0638703383e3530dd69dc57560b3d8d2"},
+    {file = "cli_exit_tools-1.1.8-py3.8.egg", hash = "sha256:55952aa5419bd0e1698ff3d23a2cc11f83b0589c8f5827b6ee50502cfecc4e32"},
+    {file = "cli_exit_tools-1.1.8-py3.9.egg", hash = "sha256:8a6eb9f2f28ee492d42bcd044dad39c65f0032a8991d719f9c637d6056441c18"},
+    {file = "cli_exit_tools-1.1.8.tar.gz", hash = "sha256:8f1d055d1c5b793d9355d7368a2f48cbb20c342dabc3f46ebd69e468dcfa2ab9"},
+]
 click = [
     {file = "click-7.1.2-py2.py3-none-any.whl", hash = "sha256:dacca89f4bfadd5de3d7489b7c8a566eee0d3676333fbb50030263894c38c0dc"},
     {file = "click-7.1.2.tar.gz", hash = "sha256:d2b5255c7c6349bc1bd1e59e08cd12acbbd63ce649f2588755783aa94dfb6b1a"},
@@ -808,10 +861,6 @@ decorator = [
     {file = "decorator-4.4.2-py2.py3-none-any.whl", hash = "sha256:41fa54c2a0cc4ba648be4fd43cff00aedf5b9465c9bf18d64325bc225f08f760"},
     {file = "decorator-4.4.2.tar.gz", hash = "sha256:e3a62f0520172440ca0dcc823749319382e377f37f140a0b99ef45fecb84bfe7"},
 ]
-diff-highlight = [
-    {file = "diff-highlight-1.2.0.tar.gz", hash = "sha256:b33321384e7bbee569b1ac0f4f3d09efef843befc3233a5ef899cf887650a4dc"},
-    {file = "diff_highlight-1.2.0-py2.py3-none-any.whl", hash = "sha256:8e179aec4f9af984bc12bfef3d371ed0d1f96fa33b51827a81579f4b02d53d28"},
-]
 docopt = [
     {file = "docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491"},
 ]
@@ -830,6 +879,10 @@ gitpython = [
 humanize = [
     {file = "humanize-3.2.0-py3-none-any.whl", hash = "sha256:d47d80cd47c1511ed3e49ca5f10c82ed940ea020b45b49ab106ed77fa8bb9d22"},
     {file = "humanize-3.2.0.tar.gz", hash = "sha256:ab69004895689951b79f2ae4fdd6b8127ff0c180aff107856d5d98119a33f026"},
+]
+importlib-metadata = [
+    {file = "importlib_metadata-3.4.0-py3-none-any.whl", hash = "sha256:ace61d5fc652dc280e7b6b4ff732a9c2d40db2c0f92bc6cb74e07b73d53a1771"},
+    {file = "importlib_metadata-3.4.0.tar.gz", hash = "sha256:fa5daa4477a7414ae34e95942e4dd07f62adf589143c875c133c1e53c4eff38d"},
 ]
 iniconfig = [
     {file = "iniconfig-1.1.1-py2.py3-none-any.whl", hash = "sha256:011e24c64b7f47f6ebd835bb12a743f2fbe9a26d4cecaa7f53bc4f35ee9da8b3"},
@@ -876,6 +929,14 @@ packaging = [
 parso = [
     {file = "parso-0.8.1-py2.py3-none-any.whl", hash = "sha256:15b00182f472319383252c18d5913b69269590616c947747bc50bf4ac768f410"},
     {file = "parso-0.8.1.tar.gz", hash = "sha256:8519430ad07087d4c997fda3a7918f7cfa27cb58972a8c89c2a0295a1c940e9e"},
+]
+pathlib3x = [
+    {file = "pathlib3x-1.3.9-py3-none-any.whl", hash = "sha256:fb0048de6f50395c5389e41a6d7d81a8751abf61e17e5fce35c619880ea420ee"},
+    {file = "pathlib3x-1.3.9-py3.6.egg", hash = "sha256:d3cc9dca94be46335d2717d642c96f15a2ffd6fd7cb699c0dedbcdd22f2fabd2"},
+    {file = "pathlib3x-1.3.9-py3.7.egg", hash = "sha256:58e2afdd4672e709e03b4305e40f34c86807d5a7f69933be44242996e3458f0d"},
+    {file = "pathlib3x-1.3.9-py3.8.egg", hash = "sha256:42e52a5e1b3c53c93c5a1e8c1eff573ef2f438e0fdba8149ae50967f8a5d5fe3"},
+    {file = "pathlib3x-1.3.9-py3.9.egg", hash = "sha256:d4caf49f8e8b61ca3418a27bface39fcbc359d440698f02d0eb1e5b648ef101c"},
+    {file = "pathlib3x-1.3.9.tar.gz", hash = "sha256:47b186e0d9085eafe05c6e0742d45970bf1a096038e664f33123babe614f05e2"},
 ]
 pathspec = [
     {file = "pathspec-0.8.1-py2.py3-none-any.whl", hash = "sha256:aa0cb481c4041bf52ffa7b0d8fa6cd3e88a2ca4879c533c9153882ee2556790d"},
@@ -1056,6 +1117,10 @@ wcwidth = [
 win32-setctime = [
     {file = "win32_setctime-1.0.3-py3-none-any.whl", hash = "sha256:dc925662de0a6eb987f0b01f599c01a8236cb8c62831c22d9cada09ad958243e"},
     {file = "win32_setctime-1.0.3.tar.gz", hash = "sha256:4e88556c32fdf47f64165a2180ba4552f8bb32c1103a2fafd05723a0bd42bd4b"},
+]
+zipp = [
+    {file = "zipp-3.4.0-py3-none-any.whl", hash = "sha256:102c24ef8f171fd729d46599845e95c7ab894a4cf45f5de11a44cc7444fb1108"},
+    {file = "zipp-3.4.0.tar.gz", hash = "sha256:ed5eee1974372595f9e416cc7bbeeb12335201d8081ca8a0743c954d4446e5cb"},
 ]
 zstandard = [
     {file = "zstandard-0.15.1-cp35-cp35m-macosx_10_9_x86_64.whl", hash = "sha256:f12d97f388fc9bb238280641367f49612016d0353a99eff13b58588f60444263"},
