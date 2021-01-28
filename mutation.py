@@ -470,7 +470,7 @@ def install_module_loader(uid):
     import imp
 
     components = path[:-3].split('/')
-    log.trace(components)
+
     while components:
         for pythonpath in sys.path:
             filepath = os.path.join(pythonpath, '/'.join(components))
@@ -485,7 +485,6 @@ def install_module_loader(uid):
         break
     if module_path is None:
         raise Exception("sys.path oops!")
-    log.warning(module_path)
 
     patched_module = imp.new_module(module_path)
     try:
