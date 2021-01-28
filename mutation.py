@@ -2,7 +2,7 @@
 
 Usage:
   mutation play [--verbose] [--exclude=<globs>] [--only-deadcode-detection] [--include=<globs>] [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
-  mutation replay [--verbose] [--max_workers=<n>]
+  mutation replay [--verbose] [--max-workers=<n>]
   mutation list
   mutation show MUTATION
   mutation apply MUTATION
@@ -47,7 +47,7 @@ from lsm import LSM
 from tqdm import tqdm
 from ulid import ULID
 
-__version__ = (0, 4, 0)
+__version__ = (0, 4, 1)
 
 
 MINUTE = 60  # seconds
