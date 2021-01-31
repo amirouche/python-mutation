@@ -33,6 +33,10 @@ from difflib import unified_diff
 from pathlib3x import Path
 from uuid import UUID
 
+import pygments
+import pygments.formatters
+import pygments.lexers
+from termcolor import colored
 import lexode
 import parso
 import zstandard as zstd
@@ -972,8 +976,32 @@ def mutation_show(uid):
     with database_open(".") as db:
         path, diff = lexode.unpack(db[lexode.pack([1, uid])])
     diff = zstd.decompress(diff).decode("utf8")
-    for line in diff.split("\n"):
-        log.info(line)
+
+    terminal256 = pygments.formatters.get_formatter_by_name('terminal256')
+    python = pygments.lexers.get_lexer_by_name('python')
+
+    print(diff)
+
+    for line in diff.split('\n'):
+        if line.startswith("+++"):
+            delta = colored("+++", "green", attrs=["bold"])
+            highlighted = pygments.highlight(line[3:], python, terminal256)
+            log.info(delta + highlighted.rstrip())
+        elif line.startswith("---"):
+            delta = colored("---", "red", attrs=["bold"])
+            highlighted = pygments.highlight(line[3:], python, terminal256)
+            log.info(delta + highlighted.rstrip())
+        elif line.startswith("+"):
+            delta = colored("+", "green", attrs=["bold"])
+            highlighted = pygments.highlight(line[1:], python, terminal256)
+            log.info(delta + highlighted.rstrip())
+        elif line.startswith("-"):
+            delta = colored("-", "red", attrs=["bold"])
+            highlighted = pygments.highlight(line[1:], python, terminal256)
+            log.info(delta + highlighted.rstrip())
+        else:
+            highlighted = pygments.highlight(line, python, terminal256)
+            log.info(highlighted.rstrip())
 
 
 def mutation_apply(uid):

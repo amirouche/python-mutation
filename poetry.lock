@@ -185,28 +185,6 @@ apipkg = ">=1.4"
 testing = ["pre-commit"]
 
 [[package]]
-name = "gitdb"
-version = "4.0.5"
-description = "Git Object Database"
-category = "main"
-optional = false
-python-versions = ">=3.4"
-
-[package.dependencies]
-smmap = ">=3.0.1,<4"
-
-[[package]]
-name = "gitpython"
-version = "3.1.12"
-description = "Python Git Library"
-category = "main"
-optional = false
-python-versions = ">=3.4"
-
-[package.dependencies]
-gitdb = ">=4.0.1,<5"
-
-[[package]]
 name = "humanize"
 version = "3.2.0"
 description = "Python humanize utilities"
@@ -473,7 +451,7 @@ python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
 name = "pygments"
 version = "2.7.4"
 description = "Pygments is a syntax highlighting package written in Python."
-category = "dev"
+category = "main"
 optional = false
 python-versions = ">=3.5"
 
@@ -596,14 +574,6 @@ optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*"
 
 [[package]]
-name = "smmap"
-version = "3.0.5"
-description = "A pure Python implementation of a sliding window memory map manager"
-category = "main"
-optional = false
-python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
-
-[[package]]
 name = "tbvaccine"
 version = "0.3.1"
 description = "A utility that cures the horrible traceback displays in Python, making them more readable."
@@ -613,6 +583,14 @@ python-versions = "*"
 
 [package.dependencies]
 pygments = "*"
+
+[[package]]
+name = "termcolor"
+version = "1.1.0"
+description = "ANSII Color formatting for output in terminal."
+category = "main"
+optional = false
+python-versions = "*"
 
 [[package]]
 name = "toml"
@@ -712,7 +690,7 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "217757e0499e27be847632b730cf1af5684b3287be8765ffed9c92dac3608b08"
+content-hash = "4d65a2aa49bb84f8944ede02862af51a426532ed5275960538aac149d56cd026"
 
 [metadata.files]
 aiostream = [
@@ -867,14 +845,6 @@ docopt = [
 execnet = [
     {file = "execnet-1.7.1-py2.py3-none-any.whl", hash = "sha256:d4efd397930c46415f62f8a31388d6be4f27a91d7550eb79bc64a756e0056547"},
     {file = "execnet-1.7.1.tar.gz", hash = "sha256:cacb9df31c9680ec5f95553976c4da484d407e85e41c83cb812aa014f0eddc50"},
-]
-gitdb = [
-    {file = "gitdb-4.0.5-py3-none-any.whl", hash = "sha256:91f36bfb1ab7949b3b40e23736db18231bf7593edada2ba5c3a174a7b23657ac"},
-    {file = "gitdb-4.0.5.tar.gz", hash = "sha256:c9e1f2d0db7ddb9a704c2a0217be31214e91a4fe1dea1efad19ae42ba0c285c9"},
-]
-gitpython = [
-    {file = "GitPython-3.1.12-py3-none-any.whl", hash = "sha256:867ec3dfb126aac0f8296b19fb63b8c4a399f32b4b6fafe84c4b10af5fa9f7b5"},
-    {file = "GitPython-3.1.12.tar.gz", hash = "sha256:42dbefd8d9e2576c496ed0059f3103dcef7125b9ce16f9d5f9c834aed44a1dac"},
 ]
 humanize = [
     {file = "humanize-3.2.0-py3-none-any.whl", hash = "sha256:d47d80cd47c1511ed3e49ca5f10c82ed940ea020b45b49ab106ed77fa8bb9d22"},
@@ -1053,13 +1023,12 @@ six = [
     {file = "six-1.15.0-py2.py3-none-any.whl", hash = "sha256:8b74bedcbbbaca38ff6d7491d76f2b06b3592611af620f8426e82dddb04a5ced"},
     {file = "six-1.15.0.tar.gz", hash = "sha256:30639c035cdb23534cd4aa2dd52c3bf48f06e5f4a941509c8bafd8ce11080259"},
 ]
-smmap = [
-    {file = "smmap-3.0.5-py2.py3-none-any.whl", hash = "sha256:7bfcf367828031dc893530a29cb35eb8c8f2d7c8f2d0989354d75d24c8573714"},
-    {file = "smmap-3.0.5.tar.gz", hash = "sha256:84c2751ef3072d4f6b2785ec7ee40244c6f45eb934d9e543e2c51f1bd3d54c50"},
-]
 tbvaccine = [
     {file = "tbvaccine-0.3.1-py2.py3-none-any.whl", hash = "sha256:3aae41b75e237f2840dde274722b1070ca43d65dd24cf60344bd6d345c77cc3d"},
     {file = "tbvaccine-0.3.1.tar.gz", hash = "sha256:8665d037ac8ad4c97bc44512de91798565b1226f7b2f59669bb7dbe9a1f87718"},
+]
+termcolor = [
+    {file = "termcolor-1.1.0.tar.gz", hash = "sha256:1d6d69ce66211143803fbc56652b41d73b4a400a2891d7bf7a1cdf4c02de613b"},
 ]
 toml = [
     {file = "toml-0.10.2-py2.py3-none-any.whl", hash = "sha256:806143ae5bfb6a3c6e736a764057db0e6a0e05e338b5630894a5f779cabb4f9b"},
