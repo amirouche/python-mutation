@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "mutation"
 version = "0.4.3"
-description = "test mutation for pytest."
+description = "test mutations for pytest."
 authors = ["Amirouche <amirouche@hyper.dev>"]
 license = "MIT"
 readme = "README.md"
