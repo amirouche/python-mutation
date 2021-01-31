@@ -30,15 +30,13 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
 from difflib import unified_diff
-from pathlib3x import Path
 from uuid import UUID
 
+import lexode
+import parso
 import pygments
 import pygments.formatters
 import pygments.lexers
-from termcolor import colored
-import lexode
-import parso
 import zstandard as zstd
 from aiostream import pipe, stream
 from astunparse import unparse
@@ -47,6 +45,8 @@ from docopt import docopt
 from humanize import precisedelta
 from loguru import logger as log
 from lsm import LSM
+from pathlib3x import Path
+from termcolor import colored
 from tqdm import tqdm
 from ulid import ULID
 
@@ -452,15 +452,15 @@ def install_module_loader(uid):
 
     import imp
 
-    components = path[:-3].split('/')
+    components = path[:-3].split("/")
 
     while components:
         for pythonpath in sys.path:
-            filepath = os.path.join(pythonpath, '/'.join(components))
+            filepath = os.path.join(pythonpath, "/".join(components))
             filepath += ".py"
             ok = os.path.exists(filepath)
             if ok:
-                module_path = '.'.join(components)
+                module_path = ".".join(components)
                 break
         else:
             components.pop()
@@ -474,7 +474,7 @@ def install_module_loader(uid):
         exec(patched, patched_module.__dict__)
     except Exception:
         # TODO: syntaxerror, do not produce those mutations
-        exec('', patched_module.__dict__)
+        exec("", patched_module.__dict__)
 
     sys.modules[module_path] = patched_module
 
@@ -722,7 +722,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
     exclude = exclude.split(",")
     exclude = glob2predicate(exclude)
 
-    filepaths = root.rglob('*.py')
+    filepaths = root.rglob("*.py")
     filepaths = (x for x in filepaths if include(str(x)) and not exclude(str(x)))
 
     # setup coverage support
@@ -790,7 +790,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     log.success("It will take at most {} to run the mutations", eta)
 
     timeout = alpha * 2
-    uids = db[lexode.pack([1]):lexode.pack([2])]
+    uids = db[lexode.pack([1]) : lexode.pack([2])]
     uids = ((command, lexode.unpack(key)[1], timeout) for (key, _) in uids)
 
     # sampling
@@ -880,9 +880,7 @@ async def play(loop, arguments):
         db[lexode.pack((0, "command"))] = lexode.pack(value)
 
         # let's create mutations!
-        count = await play_create_mutations(
-            loop, root, db, max_workers, arguments
-        )
+        count = await play_create_mutations(loop, root, db, max_workers, arguments)
         # Let's run tests against mutations!
         await play_mutations(loop, db, seed, alpha, count, max_workers, arguments)
 
@@ -936,7 +934,9 @@ def replay(arguments):
 
     with database_open(root) as db:
         while True:
-            uids = (lexode.unpack(k)[1] for k, v in db[lexode.pack([2]):] if v == b"\x00")
+            uids = (
+                lexode.unpack(k)[1] for k, v in db[lexode.pack([2]) :] if v == b"\x00"
+            )
             uids = sorted(
                 uids,
                 key=functools.partial(mutation_diff_size, db),
@@ -952,12 +952,8 @@ def replay(arguments):
 
 def mutation_list():
     with database_open(".") as db:
-        uids = ((lexode.unpack(k)[1], v) for k, v in db[lexode.pack([2]):])
-        uids = sorted(
-            uids,
-            key=lambda x: mutation_diff_size(db, x[0]),
-            reverse=True
-        )
+        uids = ((lexode.unpack(k)[1], v) for k, v in db[lexode.pack([2]) :])
+        uids = sorted(uids, key=lambda x: mutation_diff_size(db, x[0]), reverse=True)
     if not uids:
         log.info("No mutation failures 👍")
         sys.exit(0)
@@ -973,12 +969,12 @@ def mutation_show(uid):
         path, diff = lexode.unpack(db[lexode.pack([1, uid])])
     diff = zstd.decompress(diff).decode("utf8")
 
-    terminal256 = pygments.formatters.get_formatter_by_name('terminal256')
-    python = pygments.lexers.get_lexer_by_name('python')
+    terminal256 = pygments.formatters.get_formatter_by_name("terminal256")
+    python = pygments.lexers.get_lexer_by_name("python")
 
     print(diff)
 
-    for line in diff.split('\n'):
+    for line in diff.split("\n"):
         if line.startswith("+++"):
             delta = colored("+++", "green", attrs=["bold"])
             highlighted = pygments.highlight(line[3:], python, terminal256)
@@ -1005,10 +1001,10 @@ def mutation_apply(uid):
     with database_open(".") as db:
         path, diff = lexode.unpack(db[lexode.pack([1, uid])])
     diff = zstd.decompress(diff).decode("utf8")
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         source = f.read()
     patched = patch(diff, source)
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         f.write(patched)
 
 
