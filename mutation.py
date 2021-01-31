@@ -175,10 +175,6 @@ def timeit():
 
 
 class Mutation(type):
-    # TODO: understand the difference between class decorator and
-    #       metaclass.
-    #
-    # TODO: document why a metaclass, and why not a class decorator.
     ALL = set()
     DEADCODE = set()
 
@@ -611,7 +607,7 @@ def sampling_setup(sampling, total):
 
 
 # TODO: the `command` is a hack, maybe there is a way to avoid the
-# following code that looks like `if command is not None.
+# following code: `if command is not None.
 def check_tests(root, seed, arguments, command=None):
     max_workers = arguments["--max-workers"] or (os.cpu_count() - 1) or 1
     max_workers = int(max_workers)
