@@ -33,7 +33,6 @@ from difflib import unified_diff
 from pathlib3x import Path
 from uuid import UUID
 
-import git
 import lexode
 import parso
 import zstandard as zstd
@@ -129,21 +128,6 @@ def patch(diff, source):
                 sl += line[0] != sign
     t += "\n" + "".join(s[sl:])
     return t
-
-
-def tree_iter(repository, tree):
-    for blob in tree.blobs:
-        yield blob
-    for subtree in tree.trees:
-        yield from tree_iter(repository, subtree)
-
-
-def repository_iter_latest_files(repository):
-    repository = (
-        repository if isinstance(repository, git.Repo) else git.Repo(str(repository))
-    )
-    commit = repository.head.object
-    yield from tree_iter(repository, commit.tree)
 
 
 def glob2predicate(patterns):
@@ -461,7 +445,6 @@ def install_module_loader(uid):
     path, diff = lexode.unpack(db[lexode.pack([1, uid])])
     diff = zstd.decompress(diff).decode("utf8")
 
-    # TODO: replace with file from git
     with open(path) as f:
         source = f.read()
 
@@ -541,10 +524,14 @@ def coverage_read(root):
     coverage = Coverage(".coverage")  # use pathlib
     coverage.load()
     data = coverage.get_data()
-    files = data.measured_files()
-    # TODO: if coverage contains files outside git repo, it will raise
-    # an exception.
-    out = {str(Path(path).relative_to(root)): set(data.lines(path)) for path in files}
+    filepaths = data.measured_files()
+    out = dict()
+    root = root.resolve()
+    for filepath in filepaths:
+        key = str(Path(filepath).relative_to(root))
+        value = set(data.lines(filepath))
+        print(key)
+        out[key] = value
     return out
 
 
@@ -563,16 +550,6 @@ def database_open(root, recreate=False):
     db = LSM(str(db))
 
     return db
-
-
-def git_open(root):
-    try:
-        repository = git.Repo(str(root))
-    except git.exc.InvalidGitRepositoryError:
-        log.error("There is no git repository at {}", root)
-        sys.exit(2)
-    else:
-        return repository
 
 
 def run(command, timeout=None, silent=True):
@@ -631,7 +608,7 @@ def sampling_setup(sampling, total):
 
 # TODO: the `command` is a hack, maybe there is a way to avoid the
 # following code that looks like `if command is not None.
-def check_tests(root, seed, repository, arguments, command=None):
+def check_tests(root, seed, arguments, command=None):
     max_workers = arguments["--max-workers"] or (os.cpu_count() - 1) or 1
     max_workers = int(max_workers)
 
@@ -733,10 +710,10 @@ def mutation_all(x):
     return True
 
 
-async def play_create_mutations(loop, root, db, repository, max_workers, arguments):
-    # Go through all blobs in head, and produce mutations, take into
-    # account include pattern, and exclude patterns.  Also, exclude
-    # what has no coverage.
+async def play_create_mutations(loop, root, db, max_workers, arguments):
+    # Go through all files, and produce mutations, take into account
+    # include pattern, and exclude patterns.  Also, exclude what has
+    # no coverage.
     include = arguments.get("--include") or "*.py"
     include = include.split(",")
     include = glob2predicate(include)
@@ -745,8 +722,8 @@ async def play_create_mutations(loop, root, db, repository, max_workers, argumen
     exclude = exclude.split(",")
     exclude = glob2predicate(exclude)
 
-    blobs = repository_iter_latest_files(repository)
-    blobs = (x for x in blobs if include(x.path) and not exclude(x.path))
+    filepaths = root.rglob('*.py')
+    filepaths = (x for x in filepaths if include(str(x)) and not exclude(str(x)))
 
     # setup coverage support
     coverage = coverage_read(root)
@@ -756,16 +733,19 @@ async def play_create_mutations(loop, root, db, repository, max_workers, argumen
     else:
         mutation_predicate = mutation_all
 
-    def make_item(blob):
+    def make_item(filepath):
+        with filepath.open() as f:
+            content = f.read()
+
         out = (
-            blob.path,
-            blob.data_stream.read().decode("utf8"),
-            coverage.get(blob.path, set()),
+            str(filepath),
+            content,
+            coverage.get(str(filepath), set()),
             mutation_predicate,
         )
         return out
 
-    items = (make_item(blob) for blob in blobs if coverage.get(blob.path, set()))
+    items = (make_item(x) for x in filepaths if coverage.get(str(x), set()))
     # Start with biggest files first, because that is those that will
     # take most time, that way, it will make most / best use of the
     # workers.
@@ -877,14 +857,13 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
 
 async def play(loop, arguments):
-    root = Path(".").resolve()
-    repository = git_open(root)
+    root = Path(".")
 
     seed = arguments["--randomly-seed"] or int(time.time())
     log.info("Using random seed: {}".format(seed))
     random.seed(seed)
 
-    alpha, max_workers = check_tests(root, seed, repository, arguments)
+    alpha, max_workers = check_tests(root, seed, arguments)
 
     with database_open(root, recreate=True) as db:
         # store arguments used to execute command
@@ -902,7 +881,7 @@ async def play(loop, arguments):
 
         # let's create mutations!
         count = await play_create_mutations(
-            loop, root, db, repository, max_workers, arguments
+            loop, root, db, max_workers, arguments
         )
         # Let's run tests against mutations!
         await play_mutations(loop, db, seed, alpha, count, max_workers, arguments)
@@ -916,8 +895,6 @@ def mutation_diff_size(db, uid):
 
 def replay_mutation(db, uid, alpha, seed, max_workers, command):
     log.info("* Use Ctrl+C to exit.")
-
-    repository = git_open(".")
 
     command = list(command)
     command.append("--randomly-seed={}".format(seed))
@@ -939,25 +916,12 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
                 return
             # Otherwise loop to re-test...
         else:
-            non_indexed = repository.index.diff(None)
-            indexed = repository.index.diff("HEAD")
-            if indexed or non_indexed:
-                msg = "* They are uncommited changes, do you want to commit? (yes/no)"
-                log.warning(msg)
-                yes = input().startswith("y")
-                if not yes:
-                    return
-
-                for file in non_indexed:
-                    repository.index.add(file)
-                repository.index.commit("fixed mutation bug uid={}.".format(uid.hex))
             del db[lexode.pack([2, uid])]
             return
 
 
 def replay(arguments):
-    root = Path(".").resolve()
-    repository = git_open(root)
+    root = Path(".")
 
     with database_open(root) as db:
         command = db[lexode.pack((0, "command"))]
@@ -968,7 +932,7 @@ def replay(arguments):
     random.seed(seed)
     command = command.pop("command")
 
-    alpha, max_workers = check_tests(root, seed, repository, arguments, command)
+    alpha, max_workers = check_tests(root, seed, arguments, command)
 
     with database_open(root) as db:
         while True:

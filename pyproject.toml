@@ -12,7 +12,6 @@ aiostream = "^0.4.1"
 docopt = "^0.6.2"
 lsm-db = "^0.6.4"
 parso = "^0.8.1"
-GitPython = "^3.1.12"
 lexode = "0.*"
 zstandard = {extras = ["cffi"], version = "^0.15.1"}
 python-ulid = "^1.0.2"
