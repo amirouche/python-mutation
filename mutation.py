@@ -50,7 +50,7 @@ from termcolor import colored
 from tqdm import tqdm
 from ulid import ULID
 
-__version__ = (0, 4, 3)
+__version__ = (0, 4, 4)
 
 
 MINUTE = 60  # seconds
@@ -908,7 +908,7 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
             mutation_show(uid.hex)
             msg = "* Type 'skip' to go to next mutation or just enter to retry."
             log.info(msg)
-            skip = input() == "skip"
+            skip = input().startswith("s")
             if skip:
                 db[lexode.pack([2, uid])] = b"\x01"
                 return
