@@ -532,7 +532,6 @@ def coverage_read(root):
             continue
         key = str(Path(filepath).relative_to(root))
         value = set(data.lines(filepath))
-        print(key)
         out[key] = value
     return out
 
