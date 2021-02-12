@@ -528,6 +528,8 @@ def coverage_read(root):
     out = dict()
     root = root.resolve()
     for filepath in filepaths:
+        if not filepath.startswith(str(root)):
+            continue
         key = str(Path(filepath).relative_to(root))
         value = set(data.lines(filepath))
         print(key)
