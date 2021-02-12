@@ -6,7 +6,7 @@
 
 ```sh
 pip install mutation
-mutation play tests.py --include="src/*.py" --exclude="tests.py"
+mutation play tests.py --include="src/*.py"
 mutation replay
 ```
 
@@ -21,3 +21,5 @@ work of `mutation`.
 
 Also, it is better to work with a random seed, otherwise add the
 option `--randomly-seed=n` that works.
+
+- [forge](https://git.sr.ht/~amirouche/mutation)
