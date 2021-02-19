@@ -1,7 +1,12 @@
 import sys
-from foobar.ex import decrement
+from foobar.ex import decrement_by_two
 
 
-def test_foobar():
-    x = decrement(10)
-    assert 7 < x < 9
+def test_one():
+    x = decrement_by_two(10)
+    assert x < 10
+
+
+def test_two():
+    x = decrement_by_two(44)
+    assert x < 44
