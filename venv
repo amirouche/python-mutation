@@ -16,34 +16,16 @@
 
 set -e
 
-<<<<<<< HEAD
 if test -d .venv; then
     if [[ -z "$MYVENV" ]]; then
         if [[ -z "$@" ]]; then
             bash --rcfile rc.sh --rcfile .venv/bin/activate
         else
             source .venv/bin/activate
-=======
-PYTHON=$1
-
-if [ "$PYTHON" = "" ]; then
-    PYTHON="python3"
-fi;
-
-if test -d .venv; then
-    if [[ -z "$MYVENV" ]]; then
-        export MYVENV=1
-        export PS1="$(basename $(pwd)) % "
-        source .venv/bin/activate
-        if [[ -z "$@" ]]; then
-            bash --rcfile rc.sh --rcfile .venv/bin/activate
-        else
->>>>>>> c3952d2 (wip)
             exec "$@"
         fi
     else
         echo "You are already in a virtual environment!"
-<<<<<<< HEAD
         exec "$@"
     fi
 else
@@ -58,15 +40,6 @@ else
     $PYTHON -m venv .venv
     curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
     ./venv python get-pip.py
-=======
-    fi
-else
-    set -x
-    $PYTHON -m venv --prompt="$(basename $(pwd))" .venv
-    curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-    ./venv python get-pip.py
-    ./venv pip install --quiet poetry
->>>>>>> c3952d2 (wip)
     rm -r get-pip.py
     ./venv "$@"
 fi
