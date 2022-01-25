@@ -90,7 +90,6 @@ else:
         sys.stdout,
         format="<level>{level}</level> {message}",
         level="INFO",
-        colorize=True,
         enqueue=True,
     )
 
