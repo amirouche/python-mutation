@@ -4,6 +4,7 @@ from foobar.ex import decrement_by_two
 
 def test_one():
     x = decrement_by_two(10)
+    # Example sloppy assert
     assert x < 10
 
 

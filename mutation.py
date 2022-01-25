@@ -73,7 +73,7 @@ def humanize(seconds):
     return precisedelta(timedelta(seconds=seconds), minimum_unit=precision)
 
 
-PRONOTION = "https://youtu.be/ihZEaj9ml4w?list=PLOSNaPJYYhrtliZqyEWDWL0oqeH0hOHnj"
+MUTATION = "https://youtu.be/ihZEaj9ml4w?list=PLOSNaPJYYhrtliZqyEWDWL0oqeH0hOHnj"
 
 
 log.remove()
@@ -225,8 +225,8 @@ class DefinitionDrop(metaclass=Mutation):
 
 def chunks(iterable, n):
     """Yield successive n-sized chunks from iterable."""
-    it = iter(iterable)
-    while chunk := tuple(itertools.islice(it, n)):
+    iterable = iter(iterable)
+    for chunk in tuple(itertools.islice(iterable, n)):
         yield chunk
 
 
@@ -375,10 +375,10 @@ def interesting(new_node, coverage):
     return new_node.get_first_leaf().line in coverage
 
 
-def deltas_compute(source, path, coverage, mutations):
+def iter_deltas(source, path, coverage, mutations):
     ast = parso.parse(source)
     ignored = 0
-    for (index, node) in zip(itertools.count(0), node_iter(ast)):
+    for (index, (index, node)) in enumerate(zip(itertools.count(0), node_iter(ast))):
         for root, new_node in mutate(node, index, mutations):
             if not interesting(new_node, coverage):
                 ignored += 1
@@ -429,7 +429,7 @@ def mutation_create(item):
 
     log.trace("Mutating file: {}...", path)
     mutations = [m for m in Mutation.ALL if mutation_predicate(m)]
-    deltas = deltas_compute(source, path, coverage, mutations)
+    deltas = iter_deltas(source, path, coverage, mutations)
     # return the compressed deltas to save some time in the
     # mainthread.
     out = [(path, zstd.compress(x.encode("utf8"))) for x in deltas]
@@ -442,7 +442,7 @@ def install_module_loader(uid):
 
     mutation_show(uid.hex)
 
-    path, diff = lexode.unpack(db[lexode.pack([1, uid])])
+    path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
     diff = zstd.decompress(diff).decode("utf8")
 
     with open(path) as f:
@@ -501,7 +501,8 @@ def for_each_par_map(loop, pool, inc, proc, items):
 
 def mutation_pass(args):  # TODO: rename
     command, uid, timeout = args
-    command = command + ["--mutation={}".format(uid.hex)]
+    command = command + ["--mutation={}".format(uid.hex())]
+    log.debug("Running command: {}", ' '.join(command))
     out = run(command, timeout=timeout, silent=True)
     if out == 0:
         msg = "no error with mutation: {} ({})"
@@ -562,7 +563,7 @@ def run(command, timeout=None, silent=True):
 
     command.insert(0, "PYTHONDONTWRITEBYTECODE=1")
 
-    if silent and not os.environ.get("DEBUG"):
+    if silent:
         command.append("> /dev/null 2>&1")
 
     return os.system(" ".join(command))
@@ -697,7 +698,7 @@ def check_tests(root, seed, arguments, command=None):
         max_workers = 1
         alpha = alpha()
 
-    msg = "Time required to run the tests once: {}..."
+    msg = "Approximate time required to run the tests once: {}..."
     log.info(msg, humanize(alpha))
 
     return alpha, max_workers
@@ -765,7 +766,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
             total += len(items)
             for path, delta in items:
                 # TODO: replace ULID with a content addressable hash.
-                uid = ULID().to_uuid()
+                uid = ULID().to_uuid().bytes
                 # delta is a compressed unified diff
                 db[lexode.pack([1, uid])] = lexode.pack([path, delta])
 
@@ -788,7 +789,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     command.extend(arguments["<file-or-directory>"])
 
     eta = humanize(alpha * total / max_workers)
-    log.success("It will take at most {} to run the mutations", eta)
+    log.info("At most, it will take {} to run the mutations", eta)
 
     timeout = alpha * 2
     uids = db[lexode.pack([1]) : lexode.pack([2])]
@@ -796,8 +797,8 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
     # sampling
     sampling = arguments["--sampling"]
-    sampler, total = sampling_setup(sampling, total)
-    uids = sampler(uids)
+    make_sample, total = sampling_setup(sampling, total)
+    uids = make_sample(uids)
 
     step = 10
 
@@ -893,7 +894,7 @@ def mutation_diff_size(db, uid):
 
 
 def replay_mutation(db, uid, alpha, seed, max_workers, command):
-    log.info("* Use Ctrl+C to exit.")
+    log.info("* You can use Ctrl+C to exit at anytime, you progress is saved.")
 
     command = list(command)
     command.append("--randomly-seed={}".format(seed))
@@ -906,8 +907,8 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
     while True:
         ok = mutation_pass((command, uid, timeout))
         if not ok:
-            mutation_show(uid.hex)
-            msg = "* Type 'skip' to go to next mutation or just enter to retry."
+            mutation_show(uid.hex())
+            msg = "* Type 'skip' to go to next mutation or enter to retry."
             log.info(msg)
             skip = input().startswith("s")
             if skip:
@@ -959,7 +960,7 @@ def mutation_list():
         log.info("No mutation failures 👍")
         sys.exit(0)
     for (uid, type) in uids:
-        log.info("{}\t{}".format(uid.hex, "skipped" if type == b"\x01" else ""))
+        log.info("{}\t{}".format(uid.hex(), "skipped" if type == b"\x01" else ""))
 
 
 def mutation_show(uid):
@@ -967,13 +968,11 @@ def mutation_show(uid):
     log.info("mutation show {}", uid.hex)
     log.info("")
     with database_open(".") as db:
-        path, diff = lexode.unpack(db[lexode.pack([1, uid])])
+        path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
     diff = zstd.decompress(diff).decode("utf8")
 
     terminal256 = pygments.formatters.get_formatter_by_name("terminal256")
     python = pygments.lexers.get_lexer_by_name("python")
-
-    print(diff)
 
     for line in diff.split("\n"):
         if line.startswith("+++"):
@@ -998,6 +997,7 @@ def mutation_show(uid):
 
 
 def mutation_apply(uid):
+    # TODO: add support for uuid inside lexode
     uid = UUID(hex=uid)
     with database_open(".") as db:
         path, diff = lexode.unpack(db[lexode.pack([1, uid])])
@@ -1022,7 +1022,7 @@ def main():
             enqueue=True,
         )
 
-    log.debug("Mutation at {}", PRONOTION)
+    log.debug("Mutation at {}", MUTATION)
 
     log.trace(arguments)
 

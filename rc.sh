@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 MYVENV=1
 
+=======
+>>>>>>> c3952d2 (wip)
 HISTCONTROL=ignoreboth
 
 # append to the history file, don't overwrite it
