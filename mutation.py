@@ -50,7 +50,7 @@ from termcolor import colored
 from tqdm import tqdm
 from ulid import ULID
 
-__version__ = (0, 4, 5)
+__version__ = (0, 4, 6)
 
 
 MINUTE = 60  # seconds
