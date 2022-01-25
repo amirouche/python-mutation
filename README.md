@@ -1,6 +1,7 @@
 # mutation
 
-**beta**
+**alpha** requires more testing, please report any findings in my
+public inbox at https://lists.sr.ht/~amirouche/public-inbox
 
 `mutation` check that tests are robust.
 
@@ -8,7 +9,7 @@
 
 ```sh
 pip install mutation
-mutation play tests.py --include="src/*.py"
+mutation play tests.py --include="src/*.py" --exclude="tests/*,doc/*"
 mutation replay
 ```
 
