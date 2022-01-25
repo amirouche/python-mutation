@@ -1,4 +1,4 @@
-# mutation
+# 🐛 mutation 🐛
 
 **early draft** requires more testing, please report any findings in
 [my public inbox](https://lists.sr.ht/~amirouche/public-inbox).
