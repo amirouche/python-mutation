@@ -13,7 +13,6 @@ rm -rf .venv
 
 echo "exit()" | ./venv python$PYTHON_MAJOR_MINOR
 ./venv pip install --quiet poetry
-./venv pip install --quiet cython
 ./venv poetry install --no-ansi --quiet
 ./venv mutation play tests.py --include="foobar/ex.py,foobar/__init__.py" --exclude="tests.py" || exit 1
 

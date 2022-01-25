@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mutation"
-version = "0.4.6"
+version = "0.4.7"
 description = "test mutations for pytest."
 authors = ["Amirouche <amirouche@hyper.dev>"]
 license = "MIT"
@@ -27,6 +27,7 @@ pathlib3x = "^1.*"
 Pygments = "^2.*"
 termcolor = "^1.*"
 pytest-xdist = "^2.*"
+Cython = "^0.29.26"
 
 [tool.poetry.dev-dependencies]
 debug = "^0.*"
