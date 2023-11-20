@@ -12,8 +12,7 @@ PYTHON_MAJOR_MINOR=$1
 rm -rf .venv
 
 echo "exit()" | ./venv python$PYTHON_MAJOR_MINOR
-./venv pip install --quiet poetry
-./venv poetry install --no-ansi --quiet
+./venv 
 ./venv mutation play tests.py --include="foobar/ex.py,foobar/__init__.py" --exclude="tests.py" || exit 1
 
 # Publish if there is a tag on the current commit
