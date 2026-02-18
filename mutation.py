@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Mutation.
 
 Usage:
@@ -45,7 +46,7 @@ from docopt import docopt
 from humanize import precisedelta
 from loguru import logger as log
 from lsm import LSM
-from pathlib3x import Path
+from pathlib import Path
 from termcolor import colored
 from tqdm import tqdm
 from ulid import ULID
