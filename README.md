@@ -12,7 +12,7 @@ Mutation testing tells you something coverage numbers can't: whether your tests 
 
 ## Getting started
 
-`mutation` runs your tests with pytest. The `-- TEST-COMMAND` option lets you pass any pytest arguments — specific paths, flags, plugins — giving you full control over how the test suite runs.
+`mutation` runs your tests with pytest. The `-- PYTEST-COMMAND` option lets you pass any pytest arguments — specific paths, flags, plugins — giving you full control over how the test suite runs.
 
 ```
 pip install mutation
@@ -28,7 +28,7 @@ mutation replay
 ## Usage
 
 ```
-mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
+mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
 mutation replay [--verbose] [--max-workers=<n>]
 mutation list
 mutation show MUTATION
@@ -73,13 +73,13 @@ Default: current Unix timestamp (a different seed each run).
 mutation play tests.py --randomly-seed=12345 --sampling=20%
 ```
 
-**`-- TEST-COMMAND`**
+**`-- PYTEST-COMMAND`**
 
 A full pytest invocation to run instead of the built-in default (`pytest --exitfirst --no-header --tb=no --quiet --assert=plain`). Useful when you need specific pytest flags, plugins, or a subset of tests.
 
 `mutation` always appends `--mutation=<uid>` to whatever command you supply — this flag is how it injects each mutation in-process without touching files on disk. Because of this, the command **must** be a `pytest` invocation; other test runners are not supported. Coverage flags (`--cov`, etc.) are added automatically during the baseline run.
 
-`-- TEST-COMMAND` and `<file-or-directory>` are mutually exclusive.
+`-- PYTEST-COMMAND` and `<file-or-directory>` are mutually exclusive.
 
 ```
 # Run only the unit tests, with verbose output
