@@ -85,7 +85,7 @@ Mutations are persisted in `.mutation.db` (a SQLite database). Keys use `lexode`
 
 ### Pytest-Only
 
-`mutation` is fundamentally pytest-specific. Although the CLI accepts a custom `-- TEST-COMMAND`, it always appends `--mutation=<uid>` to whatever command is used. That flag is a pytest option registered by `mutation.py` itself acting as a pytest plugin (`pytest_configure` / `pytest_addoption` hooks). The plugin calls `install_module_loader` to patch the target module in-memory for that test run, without modifying files on disk. Any custom `TEST-COMMAND` must therefore still be a pytest invocation — swapping in a different test runner is not supported.
+`mutation` is fundamentally pytest-specific. Although the CLI accepts a custom `-- PYTEST-COMMAND`, it always appends `--mutation=<uid>` to whatever command is used. That flag is a pytest option registered by `mutation.py` itself acting as a pytest plugin (`pytest_configure` / `pytest_addoption` hooks). The plugin calls `install_module_loader` to patch the target module in-memory for that test run, without modifying files on disk. Any custom `PYTEST-COMMAND` must therefore still be a pytest invocation — swapping in a different test runner is not supported.
 
 ### Async Execution
 
