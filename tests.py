@@ -3,6 +3,7 @@ import sys
 
 from foobar.ex import decrement_by_two
 from mutation import (
+    AugAssignToAssign,
     BreakToReturn,
     MutateContainment,
     MutateIdentity,
@@ -22,6 +23,16 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_aug_assign_to_assign():
+    source = "def f():\n    x = 0\n    x += 1\n    return x\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [AugAssignToAssign()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("+=" not in m and "x = 1" in m for m in mutated)
 
 
 def test_remove_unary_op():
