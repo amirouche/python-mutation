@@ -13,6 +13,7 @@ from mutation import (
     MutateContextManager,
     MutateDefaultArgument,
     MutateExceptionHandler,
+    MutateFString,
     MutateIdentity,
     MutateIterator,
     MutateLambda,
@@ -212,6 +213,27 @@ def test_break_to_return():
     mutated = [mutation_patch(d, canonical) for d in deltas]
     assert any("return" in m for m in mutated)
     assert all("break" not in m for m in mutated)
+
+
+def test_mutate_fstring():
+    source = 'def f(name):\n    return f"hello {name}"\n'
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateFString()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("{name}" not in m for m in mutated)
+
+
+def test_mutate_fstring_multiple():
+    source = 'def f(a, b):\n    return f"{a} and {b}"\n'
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateFString()]))
+    assert len(deltas) == 2
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("{a}" not in m and "{b}" in m for m in mutated)
+    assert any("{b}" not in m and "{a}" in m for m in mutated)
 
 
 def test_mutate_context_manager():

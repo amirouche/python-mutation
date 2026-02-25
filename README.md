@@ -547,6 +547,20 @@ update_shared_state()
 
 </details>
 
+<details><summary>MutateFString</summary>
+
+Replace each interpolated expression in an f-string with an empty string, verifying that callers check the formatted content rather than just the surrounding template.
+
+```python
+# before
+msg = f"expected {actual}, got {result}"
+
+# after
+msg = f"expected , got {result}"
+```
+
+</details>
+
 ## Status
 
 Early stage. Things may break. Bug reports and questions welcome at amirouche.boubekki@gmail.com.
