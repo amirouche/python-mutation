@@ -18,15 +18,15 @@ Options:
   --exclude=<glob>           Glob pattern for files to skip. Repeat the flag for multiple
                              patterns [default: *test*]
   --sampling=<s>             Limit mutations tested: N tests the first N, N% tests a random
-                             N% (e.g. "--sampling=100" or "--sampling=10%") (default: all)
+                             N% (e.g. "--sampling=100" or "--sampling=10%") [default: all]
   --randomly-seed=<n>        Integer seed controlling test order (pytest-randomly) and random
                              number mutations; also makes --sampling=N% reproducible
-                             (default: current Unix timestamp)
+                             [default: current Unix timestamp]
   --only-deadcode-detection  Only apply dead-code detection mutations (StatementDrop,
                              DefinitionDrop).
   --without-exception-injection  Skip all InjectException mutations (useful when error-handling
                                  paths are intentionally untested or produce too much noise).
-  --max-workers=<n>          Number of parallel workers (default: cpu_count - 1)
+  --max-workers=<n>          Number of parallel workers [default: cpu_count - 1]
   --verbose                  Show more information.
   -h --help                  Show this screen.
   --version                  Show version.
