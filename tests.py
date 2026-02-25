@@ -11,6 +11,7 @@ from mutation import (
     MutateLambda,
     MutateReturn,
     Mutation,
+    NegateCondition,
     RemoveUnaryOp,
     iter_deltas,
 )
@@ -26,6 +27,16 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_negate_condition():
+    source = "def f(flag):\n    if flag:\n        return 1\n    return 0\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [NegateCondition()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("if not flag" in m for m in mutated)
 
 
 def test_mutate_return():
