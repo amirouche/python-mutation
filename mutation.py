@@ -49,6 +49,8 @@ import sys
 import time
 import types
 import zlib
+from ast import Constant
+
 from concurrent import futures
 from contextlib import contextmanager
 from copy import deepcopy
