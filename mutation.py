@@ -15,6 +15,7 @@ Options:
   -h --help     Show this screen.
   --version     Show version.
 """
+import ast
 import asyncio
 import fnmatch
 import functools
@@ -25,6 +26,7 @@ import re
 import shlex
 import sys
 import time
+import types
 from ast import Constant
 from concurrent import futures
 from contextlib import contextmanager
@@ -376,20 +378,29 @@ def interesting(new_node, coverage):
 
 
 def iter_deltas(source, path, coverage, mutations):
-    ast = parso.parse(source)
+    tree = parso.parse(source)
     ignored = 0
-    for (index, (index, node)) in enumerate(zip(itertools.count(0), node_iter(ast))):
+    invalid = 0
+    for (index, (index, node)) in enumerate(zip(itertools.count(0), node_iter(tree))):
         for root, new_node in mutate(node, index, mutations):
             if not interesting(new_node, coverage):
                 ignored += 1
                 continue
             target = root.get_code()
+            try:
+                ast.parse(target)
+            except SyntaxError:
+                invalid += 1
+                continue
             delta = diff(source, target, path)
             yield delta
     if ignored > 1:
         msg = "Ignored {} mutations from file at {}"
         msg += " because there is no associated coverage."
         log.trace(msg, ignored, path)
+    if invalid > 0:
+        msg = "Skipped {} invalid (syntax error) mutations from {}"
+        log.trace(msg, invalid, path)
 
 
 async def pool_for_each_par_map(loop, pool, f, p, iterator):
@@ -450,8 +461,6 @@ def install_module_loader(uid):
 
     patched = patch(diff, source)
 
-    import imp
-
     components = path[:-3].split("/")
 
     while components:
@@ -469,11 +478,10 @@ def install_module_loader(uid):
     if module_path is None:
         raise Exception("sys.path oops!")
 
-    patched_module = imp.new_module(module_path)
+    patched_module = types.ModuleType(module_path)
     try:
         exec(patched, patched_module.__dict__)
     except Exception:
-        # TODO: syntaxerror, do not produce those mutations
         exec("", patched_module.__dict__)
 
     sys.modules[module_path] = patched_module

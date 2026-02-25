@@ -47,12 +47,11 @@ option `--randomly-seed=n` that works.
 
 ## TODO
 
-- [ ] Avoid mutations that are syntax errors to improve efficiency,
-      use python 3.9+ `ast.unparse`, possibly with `black`;
-- [ ] `mutation play` can error even if the code and the test suite is
-      valid e.g. removing a docstring will trigger an error: reduce,
-      and hopefully eliminate that problem, requires python 3.9+ (see
-      above);
+- [x] Avoid mutations that are syntax errors to improve efficiency
+      (`ast.parse` validation added in `iter_deltas`);
+- [x] `mutation play` can error even if the code and the test suite is
+      valid e.g. removing the only definition from a class body produces
+      an empty-body `SyntaxError` — fixed by the same `ast.parse` check;
 - [ ] Add PyPy support;
 
 ## Links
