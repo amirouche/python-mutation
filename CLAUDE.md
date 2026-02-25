@@ -61,15 +61,14 @@ Everything lives in a single file: **`mutation.py`** (1052 lines). It functions 
 
 ### Mutation Classes
 
-Mutations are implemented via a `Mutation` metaclass that registers all subclasses automatically:
+Mutations are implemented via a `Mutation` metaclass that auto-registers all subclasses. Each mutation class implements two key methods:
 
-- `StatementDrop` — removes statements
-- `DefinitionDrop` — removes function/class definitions (deadcode detection)
-- `MutateNumber` — randomizes numeric literals
-- `MutateString` — mutates string values
-- `MutateKeyword` — flips keywords (`continue`/`break`/`pass`, `True`/`False`/`None`, `and`/`or`)
-- `MutateOperator` — swaps binary, bitwise, comparison, and assignment operators
-- `Comparison` — inverts comparison expressions
+- **`predicate(node)`** — returns `True` if the AST node matches this mutation type (e.g., `isinstance(node, ast.Constant)` for numeric mutations)
+- **`mutate(node, index, tree)`** — generator that yields `(mutated_tree_copy, new_node)` tuples, one per valid mutation of the node
+
+The metaclass (`Mutation.__init__`) instantiates each subclass and stores it in `Mutation.ALL` (a set of all mutation instances). Optional `deadcode_detection = True` flags a mutation as part of dead-code detection (e.g., `StatementDrop`, `DefinitionDrop`), limiting it to the `--only-deadcode-detection` workflow.
+
+For each covered AST node in `iter_deltas`, the pipeline calls `predicate()` on every registered mutation instance; those matching call `mutate()` to generate candidate diffs. The resulting mutations are syntax-checked (via `ast.parse`) and stored as compressed diffs in the SQLite database.
 
 ### Core Pipeline (`play` command)
 
