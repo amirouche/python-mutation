@@ -506,6 +506,29 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class MutateCallArgs(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, ast.Call) and len(node.args) > 0
+
+    def mutate(self, node, index, tree):
+        for i, arg in enumerate(node.args):
+            if isinstance(arg, ast.Constant) and arg.value is None:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.args[i] = ast.Constant(
+                value=None, lineno=arg.lineno, col_offset=arg.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+        if len(node.args) > 1:
+            for i in range(len(node.args)):
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.args.pop(i)
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+
 class ForceConditional(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp))
