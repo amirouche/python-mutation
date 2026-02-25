@@ -965,6 +965,26 @@ class MutateContextManager(metaclass=Mutation):
             yield tree_copy, node_copy
 
 
+class MutateFString(metaclass=Mutation):
+    """Replace each interpolated expression in an f-string with an empty string, verifying that callers check the formatted content rather than just the surrounding template."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.JoinedStr) and any(
+            isinstance(v, ast.FormattedValue) for v in node.values
+        )
+
+    def mutate(self, node, index, tree):
+        for i, value in enumerate(node.values):
+            if not isinstance(value, ast.FormattedValue):
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.values[i] = ast.Constant(
+                value="", lineno=node_copy.lineno, col_offset=node_copy.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
 def diff(source, target, filename=""):
     lines = unified_diff(
         source.split("\n"), target.split("\n"), filename, filename, lineterm=""
