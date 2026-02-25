@@ -16,13 +16,13 @@ Options:
   --exclude=<glob>           Glob pattern for files to skip. Repeat the flag for multiple
                              patterns [default: *test*]
   --sampling=<s>             Limit mutations tested: N tests the first N, N% tests a random
-                             N% (e.g. "--sampling=100" or "--sampling=10%") [default: all]
+                             N% (e.g. "--sampling=100" or "--sampling=10%") (default: all)
   --randomly-seed=<n>        Integer seed controlling test order (pytest-randomly) and random
                              number mutations; also makes --sampling=N% reproducible
-                             [default: current Unix timestamp]
+                             (default: current Unix timestamp)
   --only-deadcode-detection  Only apply dead-code detection mutations (StatementDrop,
                              DefinitionDrop).
-  --max-workers=<n>          Number of parallel workers [default: cpu_count - 1]
+  --max-workers=<n>          Number of parallel workers (default: cpu_count - 1)
   --verbose                  Show more information.
   -h --help                  Show this screen.
   --version                  Show version.
@@ -1263,8 +1263,7 @@ def sampling_setup(sampling, total):
 # TODO: the `command` is a hack, maybe there is a way to avoid the
 # following code: `if command is not None.
 def check_tests(root, seed, arguments, command=None):
-    max_workers = arguments["--max-workers"] or (os.cpu_count() - 1) or 1
-    max_workers = int(max_workers)
+    max_workers = int(arguments["--max-workers"] or (os.cpu_count() - 1) or 1)
 
     log.info("Let's check that the tests are green...")
 
