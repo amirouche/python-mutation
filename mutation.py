@@ -2,7 +2,7 @@
 """Mutation.
 
 Usage:
-  mutation play [--verbose] [--exclude=<globs>] [--only-deadcode-detection] [--include=<globs>] [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
+  mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
   mutation replay [--verbose] [--max-workers=<n>]
   mutation list
   mutation show MUTATION
@@ -11,9 +11,21 @@ Usage:
   mutation --version
 
 Options:
-  --verbose     Show more information.
-  -h --help     Show this screen.
-  --version     Show version.
+  --include=<glob>           Glob pattern for files to mutate, matched against relative paths.
+                             Repeat the flag for multiple patterns [default: *.py]
+  --exclude=<glob>           Glob pattern for files to skip. Repeat the flag for multiple
+                             patterns [default: *test*]
+  --sampling=<s>             Limit mutations tested: N tests the first N, N% tests a random
+                             N% (e.g. "--sampling=100" or "--sampling=10%") [default: all]
+  --randomly-seed=<n>        Integer seed controlling test order (pytest-randomly) and random
+                             number mutations; also makes --sampling=N% reproducible
+                             [default: current Unix timestamp]
+  --only-deadcode-detection  Only apply dead-code detection mutations (StatementDrop,
+                             DefinitionDrop).
+  --max-workers=<n>          Number of parallel workers [default: cpu_count - 1]
+  --verbose                  Show more information.
+  -h --help                  Show this screen.
+  --version                  Show version.
 """
 import ast
 import asyncio
@@ -807,12 +819,10 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
     # Go through all files, and produce mutations, take into account
     # include pattern, and exclude patterns.  Also, exclude what has
     # no coverage.
-    include = arguments.get("--include") or "*.py"
-    include = include.split(",")
+    include = arguments.get("--include") or ["*.py"]
     include = glob2predicate(include)
 
-    exclude = arguments.get("--exclude") or "*test*"
-    exclude = exclude.split(",")
+    exclude = arguments.get("--exclude") or ["*test*"]
     exclude = glob2predicate(exclude)
 
     filepaths = root.rglob("*.py")
