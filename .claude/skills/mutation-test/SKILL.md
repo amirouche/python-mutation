@@ -1,6 +1,9 @@
 ---
+name: mutation-test
 description: Apply mutation testing to an existing project's pytest test suite using mutation.py
-allowed-tools: Bash(python3:*), Bash(pip:*), Bash(git clone:*)
+argument-hint: [project-path]
+disable-model-invocation: true
+allowed-tools: Bash(python3:*), Bash(pip:*), Bash(pip3:*)
 ---
 
 Apply mutation testing to the project at: $ARGUMENTS
