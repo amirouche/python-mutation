@@ -506,6 +506,23 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class MutateIdentity(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, ast.Compare) and any(
+            isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops
+        )
+
+    def mutate(self, node, index, tree):
+        for i, op in enumerate(node.ops):
+            if not isinstance(op, (ast.Is, ast.IsNot)):
+                continue
+            new_op = ast.IsNot() if isinstance(op, ast.Is) else ast.Is()
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.ops[i] = new_op
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
 class MutateContainment(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, ast.Compare) and any(
