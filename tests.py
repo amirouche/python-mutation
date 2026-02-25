@@ -2,7 +2,11 @@ import ast as stdlib_ast
 import sys
 
 from foobar.ex import decrement_by_two
-from mutation import Mutation, iter_deltas
+from mutation import (
+    BreakToReturn,
+    Mutation,
+    iter_deltas,
+)
 from mutation import patch as mutation_patch
 
 
@@ -15,6 +19,17 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_break_to_return():
+    source = "def f():\n    for x in range(10):\n        break\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [BreakToReturn()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("return" in m for m in mutated)
+    assert all("break" not in m for m in mutated)
 
 
 # -- regression tests for syntax-error mutations ------------------------------
