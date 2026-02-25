@@ -7,6 +7,7 @@ from mutation import (
     BreakToReturn,
     MutateAssignment,
     MutateContainment,
+    MutateExceptionHandler,
     MutateIdentity,
     MutateLambda,
     MutateReturn,
@@ -29,6 +30,17 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_mutate_exception_handler():
+    source = "def f():\n    try:\n        pass\n    except ValueError:\n        pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateExceptionHandler()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("except Exception" in m for m in mutated)
+    assert all("except ValueError" not in m for m in mutated)
 
 
 def test_zero_iteration():
