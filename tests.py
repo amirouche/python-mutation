@@ -14,6 +14,7 @@ from mutation import (
     NegateCondition,
     RemoveDecorator,
     RemoveUnaryOp,
+    ZeroIteration,
     iter_deltas,
 )
 from mutation import patch as mutation_patch
@@ -28,6 +29,16 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_zero_iteration():
+    source = "def f(items):\n    for x in items:\n        pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [ZeroIteration()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("for x in []" in m for m in mutated)
 
 
 def test_remove_decorator():
