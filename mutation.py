@@ -506,6 +506,22 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class ForceConditional(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp))
+
+    def mutate(self, node, index, tree):
+        for value in (True, False):
+            if isinstance(node.test, ast.Constant) and node.test.value is value:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.test = ast.Constant(
+                value=value, lineno=node_copy.test.lineno, col_offset=node_copy.test.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
 class MutateExceptionHandler(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, ast.ExceptHandler) and node.type is not None
