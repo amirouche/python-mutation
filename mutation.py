@@ -985,6 +985,25 @@ class MutateFString(metaclass=Mutation):
             yield tree_copy, node_copy
 
 
+class MutateGlobal(metaclass=Mutation):
+    """Remove a global or nonlocal declaration entirely, causing assignments to bind a local variable instead, verifying that the scoping is exercised by tests."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.Global, ast.Nonlocal))
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        body = getattr(parent, field)
+        if len(body) <= 1:
+            return
+        body.pop(idx)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
 def diff(source, target, filename=""):
     lines = unified_diff(
         source.split("\n"), target.split("\n"), filename, filename, lineterm=""
