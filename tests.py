@@ -12,6 +12,7 @@ from mutation import (
     MutateReturn,
     Mutation,
     NegateCondition,
+    RemoveDecorator,
     RemoveUnaryOp,
     iter_deltas,
 )
@@ -27,6 +28,16 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_remove_decorator():
+    source = "def decorator(f): return f\n\n@decorator\ndef f(): pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [RemoveDecorator()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("@decorator" not in m for m in mutated)
 
 
 def test_negate_condition():
