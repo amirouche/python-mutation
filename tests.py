@@ -7,6 +7,7 @@ from mutation import (
     BreakToReturn,
     ForceConditional,
     MutateAssignment,
+    MutateCallArgs,
     MutateContainment,
     MutateExceptionHandler,
     MutateIdentity,
@@ -31,6 +32,19 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_mutate_call_args():
+    source = "def f(a, b):\n    return g(a, b)\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateCallArgs()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("g(None, b)" in m for m in mutated)
+    assert any("g(a, None)" in m for m in mutated)
+    assert any("g(b)" in m for m in mutated)
+    assert any("g(a)" in m for m in mutated)
 
 
 def test_force_conditional():
