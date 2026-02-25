@@ -292,6 +292,7 @@ class Mutation(type):
 
 
 class StatementDrop(metaclass=Mutation):
+    """Replace a statement with pass, verifying that no covered statement is inert dead code."""
 
     deadcode_detection = True
 
@@ -312,6 +313,7 @@ class StatementDrop(metaclass=Mutation):
 
 
 class DefinitionDrop(metaclass=Mutation):
+    """Remove a function or class definition entirely (only when others remain in the same body), surfacing unreferenced definitions."""
 
     deadcode_detection = True
 
@@ -339,6 +341,7 @@ def chunks(iterable, n):
 
 
 class MutateNumber(metaclass=Mutation):
+    """Replace an integer or float literal with a random value in the same bit-range, verifying that the exact numeric value is tested."""
 
     COUNT = 5
 
@@ -376,6 +379,8 @@ class MutateNumber(metaclass=Mutation):
 
 
 class MutateString(metaclass=Mutation):
+    """Prepend a fixed prefix to a string or bytes literal, verifying that callers check the actual content."""
+
     def predicate(self, node):
         return isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes))
 
@@ -390,6 +395,7 @@ class MutateString(metaclass=Mutation):
 
 
 class MutateKeyword(metaclass=Mutation):
+    """Rotate flow keywords (break/continue/pass), swap boolean constants (True/False/None), and flip boolean operators (and/or)."""
 
     FLOW_STMTS = (ast.Continue, ast.Break, ast.Pass)
     BOOL_OPS = (ast.And, ast.Or)
@@ -444,6 +450,8 @@ class MutateKeyword(metaclass=Mutation):
 
 
 class Comparison(metaclass=Mutation):
+    """Negate a comparison expression by wrapping it with not (...), verifying that the direction of every comparison is tested."""
+
     def predicate(self, node):
         return isinstance(node, ast.Compare)
 
@@ -467,6 +475,7 @@ class Comparison(metaclass=Mutation):
 
 
 class MutateOperator(metaclass=Mutation):
+    """Replace an arithmetic, bitwise, shift, or comparison operator with another in the same group, verifying the exact operator matters."""
 
     BINARY_OPS = [
         ast.Add, ast.Sub, ast.Mod, ast.BitOr, ast.BitAnd,
@@ -509,6 +518,8 @@ class MutateOperator(metaclass=Mutation):
 if hasattr(ast, "Match"):
 
     class MutateMatchCase(metaclass=Mutation):
+        """Remove one case branch at a time from a match statement (Python 3.10+), verifying that each branch is exercised by the test suite."""
+
         def predicate(self, node):
             return isinstance(node, ast.Match) and len(node.cases) > 1
 
@@ -532,6 +543,8 @@ _STRING_METHOD_SWAPS = {
 
 
 class MutateStringMethod(metaclass=Mutation):
+    """Swap directionally symmetric string methods (lower↔upper, lstrip↔rstrip, find↔rfind, ljust↔rjust, removeprefix↔removesuffix, partition↔rpartition, split↔rsplit), verifying that the direction matters."""
+
     def predicate(self, node):
         return (
             isinstance(node, ast.Call)
@@ -547,6 +560,8 @@ class MutateStringMethod(metaclass=Mutation):
 
 
 class MutateCallArgs(metaclass=Mutation):
+    """Replace each positional call argument with None, and drop one argument at a time from multi-argument calls, verifying that every argument is actually used."""
+
     def predicate(self, node):
         return isinstance(node, ast.Call) and len(node.args) > 0
 
@@ -570,6 +585,8 @@ class MutateCallArgs(metaclass=Mutation):
 
 
 class ForceConditional(metaclass=Mutation):
+    """Force the test of an if/while/assert/ternary to always be True or always False, verifying that both branches are meaningfully exercised."""
+
     def predicate(self, node):
         return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp))
 
@@ -586,6 +603,8 @@ class ForceConditional(metaclass=Mutation):
 
 
 class MutateExceptionHandler(metaclass=Mutation):
+    """Replace the specific exception type in an except clause with the generic Exception, verifying that the handler is tested for the right error kind."""
+
     def predicate(self, node):
         return isinstance(node, ast.ExceptHandler) and node.type is not None
 
@@ -602,6 +621,8 @@ class MutateExceptionHandler(metaclass=Mutation):
 
 
 class ZeroIteration(metaclass=Mutation):
+    """Replace a for-loop's iterable with an empty list, forcing the body to never execute, verifying that callers handle empty-collection cases."""
+
     def predicate(self, node):
         return isinstance(node, (ast.For, ast.AsyncFor))
 
@@ -618,6 +639,8 @@ class ZeroIteration(metaclass=Mutation):
 
 
 class RemoveDecorator(metaclass=Mutation):
+    """Remove one decorator at a time from a decorated function or class, verifying that each decorator's effect is covered by tests."""
+
     def predicate(self, node):
         return (
             isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -633,6 +656,8 @@ class RemoveDecorator(metaclass=Mutation):
 
 
 class NegateCondition(metaclass=Mutation):
+    """Wrap a bare (non-comparison) condition with not, inserting the logical inverse of the test, verifying that the truthiness of the value actually matters."""
+
     def predicate(self, node):
         return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp)) and not isinstance(
             node.test, ast.Compare
@@ -652,6 +677,8 @@ class NegateCondition(metaclass=Mutation):
 
 
 class MutateReturn(metaclass=Mutation):
+    """Replace a return value with a type-appropriate default (None, 0, False, or ""), verifying that callers check what the function returns."""
+
     DEFAULTS = [None, 0, False, ""]
 
     def predicate(self, node):
@@ -670,6 +697,8 @@ class MutateReturn(metaclass=Mutation):
 
 
 class MutateLambda(metaclass=Mutation):
+    """Replace the body of a lambda with None (or 0 when the body is already None), verifying that the lambda's computation is actually used."""
+
     def predicate(self, node):
         return isinstance(node, ast.Lambda)
 
@@ -684,6 +713,8 @@ class MutateLambda(metaclass=Mutation):
 
 
 class MutateAssignment(metaclass=Mutation):
+    """Replace the right-hand side of a plain assignment with None, verifying that the assigned value is not silently ignored."""
+
     def predicate(self, node):
         return isinstance(node, ast.Assign) and not (
             isinstance(node.value, ast.Constant) and node.value.value is None
@@ -699,6 +730,8 @@ class MutateAssignment(metaclass=Mutation):
 
 
 class AugAssignToAssign(metaclass=Mutation):
+    """Convert an augmented assignment (x += v) to a plain assignment (x = v), dropping the accumulation, verifying that the update operator is tested."""
+
     def predicate(self, node):
         return isinstance(node, ast.AugAssign)
 
@@ -719,6 +752,8 @@ class AugAssignToAssign(metaclass=Mutation):
 
 
 class RemoveUnaryOp(metaclass=Mutation):
+    """Strip a unary operator (not, -, ~) and leave only the operand, verifying that the operator's effect is covered by tests."""
+
     def predicate(self, node):
         return isinstance(node, ast.UnaryOp) and isinstance(
             node.op, (ast.Not, ast.USub, ast.Invert)
@@ -739,6 +774,8 @@ class RemoveUnaryOp(metaclass=Mutation):
 
 
 class MutateIdentity(metaclass=Mutation):
+    """Swap is ↔ is not in identity comparisons, verifying that the expected identity relationship is directly tested."""
+
     def predicate(self, node):
         return isinstance(node, ast.Compare) and any(
             isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops
@@ -756,6 +793,8 @@ class MutateIdentity(metaclass=Mutation):
 
 
 class MutateContainment(metaclass=Mutation):
+    """Swap in ↔ not in in membership tests, verifying that the expected membership relationship is directly tested."""
+
     def predicate(self, node):
         return isinstance(node, ast.Compare) and any(
             isinstance(op, (ast.In, ast.NotIn)) for op in node.ops
@@ -773,6 +812,8 @@ class MutateContainment(metaclass=Mutation):
 
 
 class BreakToReturn(metaclass=Mutation):
+    """Replace break with return, exiting the enclosing function instead of just the loop, verifying that the loop's exit path is tested."""
+
     def predicate(self, node):
         return isinstance(node, ast.Break)
 
@@ -786,6 +827,142 @@ class BreakToReturn(metaclass=Mutation):
         )
         ast.fix_missing_locations(tree_copy)
         yield tree_copy, node_copy
+
+
+class SwapArguments(metaclass=Mutation):
+    """Swap each pair of positional call arguments, verifying that argument order is tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Call) and len(node.args) >= 2
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.args)):
+            for j in range(i + 1, len(node.args)):
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.args[i], node_copy.args[j] = node_copy.args[j], node_copy.args[i]
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+
+class MutateSlice(metaclass=Mutation):
+    """Drop the lower or upper bound of a slice (a[i:j] → a[:j] or a[i:]) and negate the step (a[::2] → a[::-2]), verifying that slice boundary conditions and direction are tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Slice) and (
+            node.lower is not None or node.upper is not None or node.step is not None
+        )
+
+    def mutate(self, node, index, tree):
+        if node.lower is not None:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.lower = None
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+        if node.upper is not None:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.upper = None
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+        if node.step is not None:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            step = node_copy.step
+            if isinstance(step, ast.UnaryOp) and isinstance(step.op, ast.USub):
+                node_copy.step = step.operand
+            else:
+                node_copy.step = ast.UnaryOp(
+                    op=ast.USub(),
+                    operand=step,
+                    lineno=step.lineno,
+                    col_offset=step.col_offset,
+                )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateYield(metaclass=Mutation):
+    """Replace the value of a yield expression with None, verifying that the yielded value is actually used by callers."""
+
+    def predicate(self, node):
+        return (
+            isinstance(node, ast.Yield)
+            and node.value is not None
+            and not (isinstance(node.value, ast.Constant) and node.value.value is None)
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.value = ast.Constant(
+            value=None, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class MutateDefaultArgument(metaclass=Mutation):
+    """Remove leading default argument values one at a time, making parameters required, verifying that callers always supply them explicitly."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and (
+            len(node.args.defaults) > 0
+            or any(d is not None for d in node.args.kw_defaults)
+        )
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.args.defaults)):
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.args.defaults = node_copy.args.defaults[i + 1:]
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+        for i, default in enumerate(node.args.kw_defaults):
+            if default is None:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.args.kw_defaults[i] = None
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateIterator(metaclass=Mutation):
+    """Wrap a for-loop's iterable in reversed(), verifying that iteration order assumptions are tested."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.For, ast.AsyncFor)) and not (
+            isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Name)
+            and node.iter.func.id == "reversed"
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.iter = ast.Call(
+            func=ast.Name(id="reversed", ctx=ast.Load()),
+            args=[node_copy.iter],
+            keywords=[],
+            lineno=node_copy.iter.lineno,
+            col_offset=node_copy.iter.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class MutateContextManager(metaclass=Mutation):
+    """Strip context managers from a with statement one at a time, keeping the body, verifying that each manager's effect is tested."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.With, ast.AsyncWith))
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.items)):
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            if len(node_copy.items) == 1:
+                parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+                if parent is None or idx is None:
+                    continue
+                getattr(parent, field)[idx:idx + 1] = node_copy.body
+            else:
+                node_copy.items.pop(i)
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
 
 
 def diff(source, target, filename=""):
