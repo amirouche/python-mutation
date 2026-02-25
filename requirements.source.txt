@@ -1,13 +1,11 @@
 loguru
 aiostream
 docopt
-parso
 zstandard[cffi]
 python-ulid
 pytest-cov
 pytest-randomly
 humanize
-astunparse
 tqdm
 pytest
 pygments
