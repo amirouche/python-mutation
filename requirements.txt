@@ -14,8 +14,6 @@ coverage[toml]==7.3.2
     # via
     #   coverage
     #   pytest-cov
-cython==3.0.5
-    # via -r requirements.source.txt
 docopt==0.6.2
     # via -r requirements.source.txt
 execnet==2.0.2
@@ -27,8 +25,6 @@ iniconfig==2.0.0
 lexode==0.3.0
     # via -r requirements.source.txt
 loguru==0.7.2
-    # via -r requirements.source.txt
-lsm-db==0.7.1
     # via -r requirements.source.txt
 packaging==23.2
     # via pytest

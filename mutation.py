@@ -25,6 +25,7 @@ import random
 import re
 import shlex
 import sys
+import sqlite3
 import time
 import types
 from ast import Constant
@@ -47,7 +48,6 @@ from coverage import Coverage
 from docopt import docopt
 from humanize import precisedelta
 from loguru import logger as log
-from lsm import LSM
 from pathlib import Path
 from termcolor import colored
 from tqdm import tqdm
@@ -174,6 +174,57 @@ def node_copy_tree(node, index):
 def timeit():
     start = time.perf_counter()
     yield lambda: time.perf_counter() - start
+
+
+class Database:
+    def __init__(self, path, timeout=300):
+        self._conn = sqlite3.connect(str(path), check_same_thread=False, timeout=timeout)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS kv (key BLOB PRIMARY KEY, value BLOB)"
+        )
+        self._conn.commit()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self._conn.close()
+
+    def __setitem__(self, key, value):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, value)
+        )
+        self._conn.commit()
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            return self._range(key.start, key.stop)
+        row = self._conn.execute(
+            "SELECT value FROM kv WHERE key = ?", (key,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(key)
+        return row[0]
+
+    def __delitem__(self, key):
+        self._conn.execute("DELETE FROM kv WHERE key = ?", (key,))
+        self._conn.commit()
+
+    def _range(self, start, stop):
+        if start is not None and stop is not None:
+            return self._conn.execute(
+                "SELECT key, value FROM kv WHERE key >= ? AND key < ? ORDER BY key",
+                (start, stop),
+            ).fetchall()
+        elif start is not None:
+            return self._conn.execute(
+                "SELECT key, value FROM kv WHERE key >= ? ORDER BY key", (start,)
+            ).fetchall()
+        else:
+            return self._conn.execute(
+                "SELECT key, value FROM kv ORDER BY key"
+            ).fetchall()
 
 
 class Mutation(type):
@@ -449,11 +500,10 @@ def mutation_create(item):
 
 
 def install_module_loader(uid):
-    db = LSM(".mutation.okvslite")
-
     mutation_show(uid.hex)
 
-    path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
+    with Database(".mutation.db") as db:
+        path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
     diff = zstd.decompress(diff).decode("utf8")
 
     with open(path) as f:
@@ -515,12 +565,12 @@ def mutation_pass(args):  # TODO: rename
     if out == 0:
         msg = "no error with mutation: {} ({})"
         log.trace(msg, " ".join(command), out)
-        with database_open(".") as db:
+        with database_open(".", timeout=timeout) as db:
             db[lexode.pack([2, uid])] = b"\x00"
         return False
     else:
         # TODO: pass root path...
-        with database_open(".") as db:
+        with database_open(".", timeout=timeout) as db:
             del db[lexode.pack([2, uid])]
         return True
 
@@ -545,21 +595,19 @@ def coverage_read(root):
     return out
 
 
-def database_open(root, recreate=False):
+def database_open(root, recreate=False, timeout=300):
     root = root if isinstance(root, Path) else Path(root)
-    db = root / ".mutation.okvslite"
+    db = root / ".mutation.db"
     if recreate and db.exists():
         log.trace("Deleting existing database...")
-        for file in root.glob(".mutation.okvslite*"):
+        for file in root.glob(".mutation.db*"):
             file.unlink()
 
     if not recreate and not db.exists():
         log.error("No database, can not proceed!")
         sys.exit(1)
 
-    db = LSM(str(db))
-
-    return db
+    return Database(str(db), timeout=timeout)
 
 
 def run(command, timeout=None, silent=True):

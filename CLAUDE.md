@@ -76,12 +76,12 @@ Mutations are implemented via a `Mutation` metaclass that registers all subclass
 1. **`check_tests`** — runs the baseline test suite to confirm it passes; detects xdist parallel support
 2. **`coverage_read`** — parses `.coverage` data to determine which lines are actually executed
 3. **`iter_deltas`** — walks the AST via `parso`, applies `mutate()` per node, filters to covered lines via `interesting()`, yields unified diffs
-4. **`mutation_create`** — parallelizes delta generation using a process pool; stores mutations in the LSM database compressed with zstandard
+4. **`mutation_create`** — parallelizes delta generation using a process pool; stores mutations in the SQLite database compressed with zstandard
 5. **`mutation_pass`** — runs each mutation through the test suite via a thread pool; records survivors (undetected mutations)
 
 ### Storage
 
-Mutations are persisted in `.mutation.okvslite` (an LSM key-value store). Keys use `lexode` encoding; values are `zstandard`-compressed unified diffs indexed by ULID.
+Mutations are persisted in `.mutation.db` (a SQLite database). Keys use `lexode` encoding; values are `zstandard`-compressed unified diffs indexed by ULID.
 
 ### Pytest-Only
 
@@ -106,5 +106,5 @@ Mutations are persisted in `.mutation.okvslite` (an LSM key-value store). Keys u
 
 - Mutations that produce syntax errors are not filtered out (requires Python 3.9+ `ast.unparse`)
 - Removing docstrings can trigger errors in `mutation play`
-- PyPy is not supported
+- PyPy support is untested (sqlite3 is in the stdlib but other dependencies may not support PyPy)
 - `rc.sh` contains an unresolved git merge conflict
