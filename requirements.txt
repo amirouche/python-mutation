@@ -22,8 +22,6 @@ humanize==4.8.0
     # via -r requirements.source.txt
 iniconfig==2.0.0
     # via pytest
-lexode==0.3.0
-    # via -r requirements.source.txt
 loguru==0.7.2
     # via -r requirements.source.txt
 packaging==23.2

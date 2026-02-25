@@ -20,12 +20,13 @@ import asyncio
 import fnmatch
 import functools
 import itertools
+import json
 import os
 import random
 import re
 import shlex
-import sys
 import sqlite3
+import sys
 import time
 import types
 from ast import Constant
@@ -36,7 +37,6 @@ from datetime import timedelta
 from difflib import unified_diff
 from uuid import UUID
 
-import lexode
 import parso
 import pygments
 import pygments.formatters
@@ -181,7 +181,15 @@ class Database:
         self._conn = sqlite3.connect(str(path), check_same_thread=False, timeout=timeout)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS kv (key BLOB PRIMARY KEY, value BLOB)"
+            "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS mutations "
+            "(uid BLOB PRIMARY KEY, path TEXT, diff BLOB)"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS results "
+            "(uid BLOB PRIMARY KEY, status INTEGER)"
         )
         self._conn.commit()
 
@@ -191,40 +199,67 @@ class Database:
     def __exit__(self, *args):
         self._conn.close()
 
-    def __setitem__(self, key, value):
-        self._conn.execute(
-            "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, value)
-        )
-        self._conn.commit()
-
-    def __getitem__(self, key):
-        if isinstance(key, slice):
-            return self._range(key.start, key.stop)
+    # --- config ---
+    def get_config(self, key):
         row = self._conn.execute(
-            "SELECT value FROM kv WHERE key = ?", (key,)
+            "SELECT value FROM config WHERE key = ?", (key,)
         ).fetchone()
         if row is None:
             raise KeyError(key)
-        return row[0]
+        return json.loads(row[0])
 
-    def __delitem__(self, key):
-        self._conn.execute("DELETE FROM kv WHERE key = ?", (key,))
+    def set_config(self, key, value):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+            (key, json.dumps(value)),
+        )
         self._conn.commit()
 
-    def _range(self, start, stop):
-        if start is not None and stop is not None:
+    # --- mutations ---
+    def store_mutation(self, uid, path, diff):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO mutations (uid, path, diff) VALUES (?, ?, ?)",
+            (uid, path, diff),
+        )
+        self._conn.commit()
+
+    def get_mutation(self, uid):
+        row = self._conn.execute(
+            "SELECT path, diff FROM mutations WHERE uid = ?", (uid,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(uid)
+        return row[0], row[1]  # path: str, diff: bytes
+
+    def list_mutations(self):
+        return self._conn.execute(
+            "SELECT uid FROM mutations ORDER BY uid"
+        ).fetchall()
+
+    # --- results ---
+    def set_result(self, uid, status):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO results (uid, status) VALUES (?, ?)",
+            (uid, status),
+        )
+        self._conn.commit()
+
+    def del_result(self, uid):
+        self._conn.execute("DELETE FROM results WHERE uid = ?", (uid,))
+        self._conn.commit()
+
+    def list_results(self, status=None):
+        if status is not None:
             return self._conn.execute(
-                "SELECT key, value FROM kv WHERE key >= ? AND key < ? ORDER BY key",
-                (start, stop),
+                "SELECT uid, status FROM results WHERE status = ? ORDER BY uid",
+                (status,),
             ).fetchall()
-        elif start is not None:
-            return self._conn.execute(
-                "SELECT key, value FROM kv WHERE key >= ? ORDER BY key", (start,)
-            ).fetchall()
-        else:
-            return self._conn.execute(
-                "SELECT key, value FROM kv ORDER BY key"
-            ).fetchall()
+        return self._conn.execute(
+            "SELECT uid, status FROM results ORDER BY uid"
+        ).fetchall()
+
+    def count_results(self):
+        return self._conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
 
 
 class Mutation(type):
@@ -503,7 +538,7 @@ def install_module_loader(uid):
     mutation_show(uid.hex)
 
     with Database(".mutation.db") as db:
-        path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
+        path, diff = db.get_mutation(uid.bytes)
     diff = zstd.decompress(diff).decode("utf8")
 
     with open(path) as f:
@@ -566,12 +601,12 @@ def mutation_pass(args):  # TODO: rename
         msg = "no error with mutation: {} ({})"
         log.trace(msg, " ".join(command), out)
         with database_open(".", timeout=timeout) as db:
-            db[lexode.pack([2, uid])] = b"\x00"
+            db.set_result(uid, 0)
         return False
     else:
         # TODO: pass root path...
         with database_open(".", timeout=timeout) as db:
-            del db[lexode.pack([2, uid])]
+            db.del_result(uid)
         return True
 
 
@@ -824,7 +859,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
                 # TODO: replace ULID with a content addressable hash.
                 uid = ULID().to_uuid().bytes
                 # delta is a compressed unified diff
-                db[lexode.pack([1, uid])] = lexode.pack([path, delta])
+                db.store_mutation(uid, str(path), delta)
 
         with timeit() as delta:
             with futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
@@ -848,8 +883,8 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     log.info("At most, it will take {} to run the mutations", eta)
 
     timeout = alpha * 2
-    uids = db[lexode.pack([1]) : lexode.pack([2])]
-    uids = ((command, lexode.unpack(key)[1], timeout) for (key, _) in uids)
+    rows = db.list_mutations()
+    uids = ((command, uid, timeout) for (uid,) in rows)
 
     # sampling
     sampling = arguments["--sampling"]
@@ -901,7 +936,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
                     loop, pool, on_progress, mutation_pass, uids
                 )
 
-        errors = len(list(db[lexode.pack([2]) : lexode.pack([3])]))
+        errors = db.count_results()
 
     if errors > 0:
         msg = "It took {} to compute {} mutation failures!"
@@ -934,8 +969,7 @@ async def play(loop, arguments):
             command=command,
             seed=seed,
         )
-        value = list(command.items())
-        db[lexode.pack((0, "command"))] = lexode.pack(value)
+        db.set_config("command", command)
 
         # let's create mutations!
         count = await play_create_mutations(loop, root, db, max_workers, arguments)
@@ -944,7 +978,7 @@ async def play(loop, arguments):
 
 
 def mutation_diff_size(db, uid):
-    _, diff = lexode.unpack(db[lexode.pack([1, uid])])
+    _, diff = db.get_mutation(uid)
     out = len(zstd.decompress(diff))
     return out
 
@@ -968,11 +1002,11 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
             log.info(msg)
             skip = input().startswith("s")
             if skip:
-                db[lexode.pack([2, uid])] = b"\x01"
+                db.set_result(uid, 1)
                 return
             # Otherwise loop to re-test...
         else:
-            del db[lexode.pack([2, uid])]
+            db.del_result(uid)
             return
 
 
@@ -980,10 +1014,8 @@ def replay(arguments):
     root = Path(".")
 
     with database_open(root) as db:
-        command = db[lexode.pack((0, "command"))]
+        command = db.get_config("command")
 
-    command = lexode.unpack(command)
-    command = dict(command)
     seed = command.pop("seed")
     random.seed(seed)
     command = command.pop("command")
@@ -992,9 +1024,7 @@ def replay(arguments):
 
     with database_open(root) as db:
         while True:
-            uids = (
-                lexode.unpack(k)[1] for k, v in db[lexode.pack([2]) :] if v == b"\x00"
-            )
+            uids = [uid for (uid, _) in db.list_results(status=0)]
             uids = sorted(
                 uids,
                 key=functools.partial(mutation_diff_size, db),
@@ -1010,13 +1040,13 @@ def replay(arguments):
 
 def mutation_list():
     with database_open(".") as db:
-        uids = ((lexode.unpack(k)[1], v) for k, v in db[lexode.pack([2]) :])
+        uids = db.list_results()
         uids = sorted(uids, key=lambda x: mutation_diff_size(db, x[0]), reverse=True)
     if not uids:
         log.info("No mutation failures 👍")
         sys.exit(0)
-    for (uid, type) in uids:
-        log.info("{}\t{}".format(uid.hex(), "skipped" if type == b"\x01" else ""))
+    for (uid, status) in uids:
+        log.info("{}\t{}".format(uid.hex(), "skipped" if status == 1 else ""))
 
 
 def mutation_show(uid):
@@ -1024,7 +1054,7 @@ def mutation_show(uid):
     log.info("mutation show {}", uid.hex)
     log.info("")
     with database_open(".") as db:
-        path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
+        path, diff = db.get_mutation(uid.bytes)
     diff = zstd.decompress(diff).decode("utf8")
 
     terminal256 = pygments.formatters.get_formatter_by_name("terminal256")
@@ -1053,10 +1083,9 @@ def mutation_show(uid):
 
 
 def mutation_apply(uid):
-    # TODO: add support for uuid inside lexode
     uid = UUID(hex=uid)
     with database_open(".") as db:
-        path, diff = lexode.unpack(db[lexode.pack([1, uid])])
+        path, diff = db.get_mutation(uid.bytes)
     diff = zstd.decompress(diff).decode("utf8")
     with open(path, "r") as f:
         source = f.read()
