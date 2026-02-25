@@ -506,6 +506,21 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class MutateAssignment(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, ast.Assign) and not (
+            isinstance(node.value, ast.Constant) and node.value.value is None
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.value = ast.Constant(
+            value=None, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
 class AugAssignToAssign(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, ast.AugAssign)
