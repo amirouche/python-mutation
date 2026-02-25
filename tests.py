@@ -9,6 +9,7 @@ from mutation import (
     MutateContainment,
     MutateIdentity,
     MutateLambda,
+    MutateReturn,
     Mutation,
     RemoveUnaryOp,
     iter_deltas,
@@ -25,6 +26,19 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_mutate_return():
+    source = "def f(x):\n    return x + 1\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateReturn()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("return None" in m for m in mutated)
+    assert any("return 0" in m for m in mutated)
+    assert any("return False" in m for m in mutated)
+    assert any("return ''" in m for m in mutated)
 
 
 def test_mutate_lambda():

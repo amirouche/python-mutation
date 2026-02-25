@@ -506,6 +506,24 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class MutateReturn(metaclass=Mutation):
+    DEFAULTS = [None, 0, False, ""]
+
+    def predicate(self, node):
+        return isinstance(node, ast.Return) and node.value is not None
+
+    def mutate(self, node, index, tree):
+        for default in self.DEFAULTS:
+            if isinstance(node.value, ast.Constant) and node.value.value is default:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.value = ast.Constant(
+                value=default, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
 class MutateLambda(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, ast.Lambda)
