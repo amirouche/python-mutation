@@ -14,6 +14,7 @@ from mutation import (
     MutateDefaultArgument,
     MutateExceptionHandler,
     MutateFString,
+    MutateGlobal,
     MutateIdentity,
     MutateIterator,
     MutateLambda,
@@ -213,6 +214,35 @@ def test_break_to_return():
     mutated = [mutation_patch(d, canonical) for d in deltas]
     assert any("return" in m for m in mutated)
     assert all("break" not in m for m in mutated)
+
+
+def test_mutate_global():
+    source = "x = 0\ndef f():\n    global x\n    x = 1\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateGlobal()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("global" not in m for m in mutated)
+
+
+def test_mutate_nonlocal():
+    source = "def outer():\n    x = 0\n    def inner():\n        nonlocal x\n        x = 1\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateGlobal()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("nonlocal" not in m for m in mutated)
+
+
+def test_mutate_global_only_statement_skipped():
+    # sole statement in body — removing it would produce empty body → skipped
+    source = "x = 0\ndef f():\n    global x\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateGlobal()]))
+    assert not deltas
 
 
 def test_mutate_fstring():

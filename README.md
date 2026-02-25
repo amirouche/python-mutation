@@ -547,6 +547,23 @@ update_shared_state()
 
 </details>
 
+<details><summary>MutateGlobal</summary>
+
+Remove a `global` or `nonlocal` declaration entirely, causing assignments to bind a local variable instead, verifying that the scoping is exercised by tests.
+
+```python
+# before
+def increment():
+    global counter
+    counter += 1
+
+# after
+def increment():
+    counter += 1
+```
+
+</details>
+
 <details><summary>MutateFString</summary>
 
 Replace each interpolated expression in an f-string with an empty string, verifying that callers check the formatted content rather than just the surrounding template.
