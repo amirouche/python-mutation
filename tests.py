@@ -2,6 +2,7 @@ import ast as stdlib_ast
 import sys
 
 from foobar.ex import decrement_by_two
+import ast as _ast
 from mutation import (
     AugAssignToAssign,
     BreakToReturn,
@@ -22,6 +23,9 @@ from mutation import (
     iter_deltas,
 )
 from mutation import patch as mutation_patch
+
+if hasattr(_ast, "Match"):
+    from mutation import MutateMatchCase
 
 
 def test_one():
@@ -254,3 +258,23 @@ def test_no_syntax_error_mutations_docstring():
     assert not bad, "iter_deltas yielded {:d} syntax-error mutation(s):\n{}".format(
         len(bad), "\n---\n".join(bad)
     )
+
+
+if hasattr(_ast, "Match"):
+
+    def test_mutate_match_case():
+        source = (
+            "def f(x):\n"
+            "    match x:\n"
+            "        case 1:\n"
+            "            return 'one'\n"
+            "        case 2:\n"
+            "            return 'two'\n"
+        )
+        canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+        coverage = _full_coverage(source)
+        deltas = list(iter_deltas(source, "test.py", coverage, [MutateMatchCase()]))
+        assert deltas
+        mutated = [mutation_patch(d, canonical) for d in deltas]
+        assert any("case 1:" not in m for m in mutated)
+        assert any("case 2:" not in m for m in mutated)

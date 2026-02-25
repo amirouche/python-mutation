@@ -506,6 +506,20 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+if hasattr(ast, "Match"):
+
+    class MutateMatchCase(metaclass=Mutation):
+        def predicate(self, node):
+            return isinstance(node, ast.Match) and len(node.cases) > 1
+
+        def mutate(self, node, index, tree):
+            for i in range(len(node.cases)):
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.cases.pop(i)
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+
 _STRING_METHOD_SWAPS = {
     "lower": "upper", "upper": "lower",
     "lstrip": "rstrip", "rstrip": "lstrip",
