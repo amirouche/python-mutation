@@ -506,6 +506,22 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class ZeroIteration(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, (ast.For, ast.AsyncFor))
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.iter = ast.List(
+            elts=[],
+            ctx=ast.Load(),
+            lineno=node_copy.iter.lineno,
+            col_offset=node_copy.iter.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
 class RemoveDecorator(metaclass=Mutation):
     def predicate(self, node):
         return (
