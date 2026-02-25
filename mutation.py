@@ -506,6 +506,32 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+_STRING_METHOD_SWAPS = {
+    "lower": "upper", "upper": "lower",
+    "lstrip": "rstrip", "rstrip": "lstrip",
+    "find": "rfind", "rfind": "find",
+    "ljust": "rjust", "rjust": "ljust",
+    "removeprefix": "removesuffix", "removesuffix": "removeprefix",
+    "partition": "rpartition", "rpartition": "partition",
+    "split": "rsplit", "rsplit": "split",
+}
+
+
+class MutateStringMethod(metaclass=Mutation):
+    def predicate(self, node):
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _STRING_METHOD_SWAPS
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.func.attr = _STRING_METHOD_SWAPS[node.func.attr]
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
 class MutateCallArgs(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, ast.Call) and len(node.args) > 0
