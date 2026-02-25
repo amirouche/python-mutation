@@ -99,10 +99,6 @@ Mutations are persisted in `.mutation.db` (a SQLite database via `sqlite3` from 
 | File | Purpose |
 |------|---------|
 | `mutation.py` | Entire application: CLI, mutation engine, pytest plugin |
-| `tests.py` | Example test suite (tests `foobar/ex.py`) used for self-testing |
+| `tests.py` | `mutation.py` test suite |
 | `foobar/ex.py` | Example module (`decrement_by_two`) mutated during self-tests |
-| `requirements.source.txt` | Hand-maintained dependency list (input to pip-compile) |
-| `requirements.txt` | pip-compiled locked dependencies (auto-generated, do not edit) |
-| `requirements.dev.txt` | Dev-only tools: black, isort, bandit, tbvaccine |
-
-
+| `foobar/test.py` | weak test for `foobar/ex.py` |
