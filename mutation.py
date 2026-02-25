@@ -2,7 +2,7 @@
 """Mutation.
 
 Usage:
-  mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
+  mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
   mutation replay [--verbose] [--max-workers=<n>]
   mutation list
   mutation show MUTATION
@@ -719,8 +719,8 @@ def check_tests(root, seed, arguments, command=None):
 
     log.info("Let's check that the tests are green...")
 
-    if arguments["<file-or-directory>"] and arguments["TEST-COMMAND"]:
-        log.error("<file-or-directory> and TEST-COMMAND are exclusive!")
+    if arguments["<file-or-directory>"] and arguments["PYTEST-COMMAND"]:
+        log.error("<file-or-directory> and PYTEST-COMMAND are exclusive!")
         sys.exit(1)
 
     if command is not None:
@@ -734,8 +734,8 @@ def check_tests(root, seed, arguments, command=None):
                 ]
             )
     else:
-        if arguments["TEST-COMMAND"]:
-            command = list(arguments["TEST-COMMAND"])
+        if arguments["PYTEST-COMMAND"]:
+            command = list(arguments["PYTEST-COMMAND"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -770,8 +770,8 @@ def check_tests(root, seed, arguments, command=None):
         log.warning("I tried the following command: `{}`", " ".join(command))
 
         # Same command without parallelization
-        if arguments["TEST-COMMAND"]:
-            command = list(arguments["TEST-COMMAND"])
+        if arguments["PYTEST-COMMAND"]:
+            command = list(arguments["PYTEST-COMMAND"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -885,7 +885,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
 
 async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     # prepare to run tests against mutations
-    command = list(arguments["TEST-COMMAND"] or PYTEST)
+    command = list(arguments["PYTEST-COMMAND"] or PYTEST)
     command.append("--randomly-seed={}".format(seed))
     command.extend(arguments["<file-or-directory>"])
 
@@ -970,8 +970,8 @@ async def play(loop, arguments):
 
     with database_open(root, recreate=True) as db:
         # store arguments used to execute command
-        if arguments["TEST-COMMAND"]:
-            command = list(arguments["TEST-COMMAND"])
+        if arguments["PYTEST-COMMAND"]:
+            command = list(arguments["PYTEST-COMMAND"])
         else:
             command = list(PYTEST)
             command += arguments["<file-or-directory>"]
