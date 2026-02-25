@@ -4,6 +4,7 @@ import sys
 from foobar.ex import decrement_by_two
 from mutation import (
     BreakToReturn,
+    MutateContainment,
     Mutation,
     iter_deltas,
 )
@@ -19,6 +20,26 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_mutate_containment():
+    source = "def f(x, c):\n    return x in c\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateContainment()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("not in" in m for m in mutated)
+
+
+def test_mutate_containment_not_in():
+    source = "def f(x, c):\n    return x not in c\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateContainment()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("not in" not in m and "in" in m for m in mutated)
 
 
 def test_break_to_return():
