@@ -458,7 +458,6 @@ def test_no_syntax_error_mutations_docstring():
         len(bad), "\n---\n".join(bad)
     )
 
-
 def test_mutate_number():
     source = "def f():\n    return 100\n"
     canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
