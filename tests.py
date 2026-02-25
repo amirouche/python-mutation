@@ -10,15 +10,21 @@ from mutation import (
     MutateAssignment,
     MutateCallArgs,
     MutateContainment,
+    MutateContextManager,
+    MutateDefaultArgument,
     MutateExceptionHandler,
     MutateIdentity,
+    MutateIterator,
     MutateLambda,
     MutateReturn,
+    MutateSlice,
     MutateStringMethod,
+    MutateYield,
     Mutation,
     NegateCondition,
     RemoveDecorator,
     RemoveUnaryOp,
+    SwapArguments,
     ZeroIteration,
     iter_deltas,
 )
@@ -206,6 +212,121 @@ def test_break_to_return():
     mutated = [mutation_patch(d, canonical) for d in deltas]
     assert any("return" in m for m in mutated)
     assert all("break" not in m for m in mutated)
+
+
+def test_mutate_context_manager():
+    source = "def f():\n    with lock:\n        do_stuff()\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateContextManager()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    # with stripped, body preserved
+    assert any("with" not in m.split("def")[1] for m in mutated)
+    assert any("do_stuff()" in m for m in mutated)
+
+
+def test_mutate_context_manager_multi():
+    source = "def f():\n    with a, b:\n        pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateContextManager()]))
+    assert len(deltas) == 2
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("with a:" in m for m in mutated)
+    assert any("with b:" in m for m in mutated)
+
+
+def test_mutate_default_argument():
+    source = "def f(x, y=1, z=2):\n    return x + y + z\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateDefaultArgument()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("def f(x, y, z=2):" in m for m in mutated)   # drop y's default
+    assert any("def f(x, y, z):" in m for m in mutated)     # drop both defaults
+
+
+def test_mutate_default_argument_kwonly():
+    source = "def f(x, *, y=1):\n    return x + y\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateDefaultArgument()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("def f(x, *, y):" in m for m in mutated)
+
+
+def test_mutate_iterator():
+    source = "def f(items):\n    for x in items:\n        pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateIterator()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("reversed(items)" in m for m in mutated)
+
+
+def test_mutate_iterator_no_double_wrap():
+    source = "def f(items):\n    for x in reversed(items):\n        pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateIterator()]))
+    assert not deltas
+
+
+def test_swap_arguments():
+    source = "def f(a, b):\n    return g(a, b)\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [SwapArguments()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("g(b, a)" in m for m in mutated)
+
+
+def test_mutate_slice():
+    source = "def f(a):\n    return a[1:3]\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateSlice()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("a[:3]" in m for m in mutated)
+    assert any("a[1:]" in m for m in mutated)
+
+
+def test_mutate_slice_step_negation():
+    # positive step → negated
+    source = "def f(a):\n    return a[::2]\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateSlice()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("a[::-2]" in m for m in mutated)
+
+
+def test_mutate_slice_step_negation_reverse():
+    # negative step (reversal idiom) → stripped to positive
+    source = "def f(a):\n    return a[::-1]\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateSlice()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("a[::1]" in m for m in mutated)
+
+
+def test_mutate_yield():
+    source = "def f():\n    yield 42\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateYield()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("yield None" in m for m in mutated)
 
 
 # -- regression tests for syntax-error mutations ------------------------------
