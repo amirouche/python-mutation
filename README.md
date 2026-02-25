@@ -88,7 +88,7 @@ mutation play --include="src/*.py" -- pytest -x -v tests/unit/
 
 ## Mutations
 
-<details><summary>AugAssignToAssign</summary>
+<details><summary><code>AugAssignToAssign</code> — convert augmented assignment to plain assignment</summary>
 
 Convert an augmented assignment (`x += v`) to a plain assignment (`x = v`), dropping the accumulation, verifying that the update operator is tested.
 
@@ -102,7 +102,7 @@ total = amount
 
 </details>
 
-<details><summary>BreakToReturn</summary>
+<details><summary><code>BreakToReturn</code> — replace break with return</summary>
 
 Replace `break` with `return`, exiting the enclosing function instead of just the loop, verifying that the loop's exit path is tested.
 
@@ -120,7 +120,7 @@ for item in items:
 
 </details>
 
-<details><summary>Comparison</summary>
+<details><summary><code>Comparison</code> — negate comparison expressions</summary>
 
 Negate a comparison expression by wrapping it with `not (...)`, verifying that the direction of every comparison is tested.
 
@@ -136,7 +136,7 @@ if not (x > 0):
 
 </details>
 
-<details><summary>DefinitionDrop</summary>
+<details><summary><code>DefinitionDrop</code> — remove function or class definitions</summary>
 
 Remove a function or class definition entirely (only when others remain in the same body), surfacing unreferenced definitions.
 
@@ -155,7 +155,7 @@ def main():
 
 </details>
 
-<details><summary>ForceConditional</summary>
+<details><summary><code>ForceConditional</code> — force conditions to True or False</summary>
 
 Force the test of an if/while/assert/ternary to always be `True` or always `False`, verifying that both branches are meaningfully exercised.
 
@@ -171,7 +171,7 @@ if True:
 
 </details>
 
-<details><summary>MutateAssignment</summary>
+<details><summary><code>MutateAssignment</code> — replace assignment values with None</summary>
 
 Replace the right-hand side of a plain assignment with `None`, verifying that the assigned value is not silently ignored.
 
@@ -185,7 +185,7 @@ result = None
 
 </details>
 
-<details><summary>MutateCallArgs</summary>
+<details><summary><code>MutateCallArgs</code> — replace or drop function arguments</summary>
 
 Replace each positional call argument with `None`, and drop one argument at a time from multi-argument calls, verifying that every argument is actually used.
 
@@ -199,7 +199,7 @@ result = process(None, config)
 
 </details>
 
-<details><summary>MutateContainment</summary>
+<details><summary><code>MutateContainment</code> — swap in and not in operators</summary>
 
 Swap `in` ↔ `not in` in membership tests, verifying that the expected membership relationship is directly tested.
 
@@ -215,7 +215,7 @@ if key not in cache:
 
 </details>
 
-<details><summary>MutateContextManager</summary>
+<details><summary><code>MutateContextManager</code> — strip context managers from with blocks</summary>
 
 Strip context managers from a `with` statement one at a time, keeping the body, verifying that each manager's effect is tested.
 
@@ -230,7 +230,7 @@ update_shared_state()
 
 </details>
 
-<details><summary>MutateDefaultArgument</summary>
+<details><summary><code>MutateDefaultArgument</code> — remove default argument values</summary>
 
 Remove leading default argument values one at a time, making parameters required, verifying that callers always supply them explicitly.
 
@@ -246,7 +246,7 @@ def connect(host, port, timeout=30):
 
 </details>
 
-<details><summary>MutateExceptionHandler</summary>
+<details><summary><code>MutateExceptionHandler</code> — replace exception types with Exception</summary>
 
 Replace the specific exception type in an except clause with the generic `Exception`, verifying that the handler is tested for the right error kind.
 
@@ -266,7 +266,7 @@ except Exception:
 
 </details>
 
-<details><summary>MutateFString</summary>
+<details><summary><code>MutateFString</code> — replace f-string interpolations with empty strings</summary>
 
 Replace each interpolated expression in an f-string with an empty string, verifying that callers check the formatted content rather than just the surrounding template.
 
@@ -280,7 +280,7 @@ msg = f"expected , got {result}"
 
 </details>
 
-<details><summary>MutateGlobal</summary>
+<details><summary><code>MutateGlobal</code> — remove global and nonlocal declarations</summary>
 
 Remove a `global` or `nonlocal` declaration entirely, causing assignments to bind a local variable instead, verifying that the scoping is exercised by tests.
 
@@ -297,7 +297,7 @@ def increment():
 
 </details>
 
-<details><summary>MutateIdentity</summary>
+<details><summary><code>MutateIdentity</code> — swap is and is not operators</summary>
 
 Swap `is` ↔ `is not` in identity comparisons, verifying that the expected identity relationship is directly tested.
 
@@ -313,7 +313,7 @@ if obj is not None:
 
 </details>
 
-<details><summary>MutateIterator</summary>
+<details><summary><code>MutateIterator</code> — wrap iterables in reversed()</summary>
 
 Wrap a for-loop's iterable in `reversed()`, verifying that iteration order assumptions are tested.
 
@@ -329,7 +329,7 @@ for item in reversed(queue):
 
 </details>
 
-<details><summary>MutateKeyword</summary>
+<details><summary><code>MutateKeyword</code> — rotate flow and boolean keywords</summary>
 
 Rotate flow keywords (break/continue/pass), swap boolean constants (True/False/None), and flip boolean operators (and/or).
 
@@ -347,7 +347,7 @@ while True:
 
 </details>
 
-<details><summary>MutateLambda</summary>
+<details><summary><code>MutateLambda</code> — replace lambda bodies with None</summary>
 
 Replace the body of a lambda with `None` (or `0` when the body is already `None`), verifying that the lambda's computation is actually used.
 
@@ -361,7 +361,7 @@ transform = lambda x: None
 
 </details>
 
-<details><summary>MutateMatchCase</summary>
+<details><summary><code>MutateMatchCase</code> — remove match case branches</summary>
 
 Remove one case branch at a time from a match statement (Python 3.10+ only), verifying that each branch is exercised by the test suite.
 
@@ -381,7 +381,7 @@ match command:
 
 </details>
 
-<details><summary>MutateNumber</summary>
+<details><summary><code>MutateNumber</code> — replace numeric literals with random values</summary>
 
 Replace an integer or float literal with a random value in the same bit-range, verifying that the exact numeric value is tested.
 
@@ -395,7 +395,7 @@ TIMEOUT = 17
 
 </details>
 
-<details><summary>MutateOperator</summary>
+<details><summary><code>MutateOperator</code> — replace arithmetic and comparison operators</summary>
 
 Replace an arithmetic, bitwise, shift, or comparison operator with another in the same group, verifying the exact operator matters.
 
@@ -409,7 +409,7 @@ result = a - b
 
 </details>
 
-<details><summary>MutateReturn</summary>
+<details><summary><code>MutateReturn</code> — replace return values with defaults</summary>
 
 Replace a return value with a type-appropriate default (`None`, `0`, `False`, or `""`), verifying that callers check what the function returns.
 
@@ -425,7 +425,7 @@ def get_count():
 
 </details>
 
-<details><summary>MutateSlice</summary>
+<details><summary><code>MutateSlice</code> — drop slice bounds and negate steps</summary>
 
 Drop the lower or upper bound of a slice (`a[i:j]` → `a[:j]` or `a[i:]`) and negate the step (`a[::2]` → `a[::-2]`), verifying that slice boundary conditions and direction are tested.
 
@@ -439,7 +439,7 @@ chunk = data[:end]
 
 </details>
 
-<details><summary>MutateString</summary>
+<details><summary><code>MutateString</code> — prepend prefixes to string literals</summary>
 
 Prepend a fixed prefix to a string or bytes literal, verifying that callers check the actual content.
 
@@ -453,7 +453,7 @@ label = "mutated string hello"
 
 </details>
 
-<details><summary>MutateStringMethod</summary>
+<details><summary><code>MutateStringMethod</code> — swap symmetric string methods</summary>
 
 Swap directionally symmetric string methods (lower↔upper, lstrip↔rstrip, find↔rfind, ljust↔rjust, removeprefix↔removesuffix, partition↔rpartition, split↔rsplit), verifying that the direction matters.
 
@@ -467,7 +467,7 @@ name = text.upper()
 
 </details>
 
-<details><summary>MutateYield</summary>
+<details><summary><code>MutateYield</code> — replace yield values with None</summary>
 
 Replace the value of a yield expression with `None`, verifying that the yielded value is actually used by callers.
 
@@ -483,7 +483,7 @@ def generate():
 
 </details>
 
-<details><summary>NegateCondition</summary>
+<details><summary><code>NegateCondition</code> — wrap conditions with not</summary>
 
 Wrap a bare (non-comparison) condition with `not`, inserting the logical inverse of the test, verifying that the truthiness of the value actually matters.
 
@@ -499,7 +499,7 @@ if not user.is_active:
 
 </details>
 
-<details><summary>RemoveDecorator</summary>
+<details><summary><code>RemoveDecorator</code> — remove decorators from functions and classes</summary>
 
 Remove one decorator at a time from a decorated function or class, verifying that each decorator's effect is covered by tests.
 
@@ -516,7 +516,7 @@ def dashboard(request):
 
 </details>
 
-<details><summary>RemoveUnaryOp</summary>
+<details><summary><code>RemoveUnaryOp</code> — strip unary operators</summary>
 
 Strip a unary operator (`not`, `-`, `~`) and leave only the operand, verifying that the operator's effect is covered by tests.
 
@@ -532,7 +532,7 @@ if flag:
 
 </details>
 
-<details><summary>StatementDrop</summary>
+<details><summary><code>StatementDrop</code> — replace statements with pass</summary>
 
 Replace a covered statement with `pass`, verifying that no statement is inert dead code.
 
@@ -548,7 +548,7 @@ pass
 
 </details>
 
-<details><summary>SwapArguments</summary>
+<details><summary><code>SwapArguments</code> — swap function call arguments</summary>
 
 Swap each pair of positional call arguments, verifying that argument order is tested.
 
@@ -562,7 +562,7 @@ result = process(dest, source)
 
 </details>
 
-<details><summary>ZeroIteration</summary>
+<details><summary><code>ZeroIteration</code> — replace iterables with empty lists</summary>
 
 Replace a for-loop's iterable with an empty list, forcing the body to never execute, verifying that callers handle empty-collection cases.
 
