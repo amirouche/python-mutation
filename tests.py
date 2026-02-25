@@ -1,6 +1,5 @@
 import ast as stdlib_ast
 import random
-import sys
 
 from foobar.ex import decrement_by_two
 import ast as _ast
@@ -251,7 +250,9 @@ def test_mutate_global():
 
 
 def test_mutate_nonlocal():
-    source = "def outer():\n    x = 0\n    def inner():\n        nonlocal x\n        x = 1\n"
+    source = (
+        "def outer():\n    x = 0\n    def inner():\n        nonlocal x\n        x = 1\n"
+    )
     canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
     coverage = _full_coverage(source)
     deltas = list(iter_deltas(source, "test.py", coverage, [MutateGlobal()]))
@@ -320,8 +321,8 @@ def test_mutate_default_argument():
     deltas = list(iter_deltas(source, "test.py", coverage, [MutateDefaultArgument()]))
     assert deltas
     mutated = [mutation_patch(d, canonical) for d in deltas]
-    assert any("def f(x, y, z=2):" in m for m in mutated)   # drop y's default
-    assert any("def f(x, y, z):" in m for m in mutated)     # drop both defaults
+    assert any("def f(x, y, z=2):" in m for m in mutated)  # drop y's default
+    assert any("def f(x, y, z):" in m for m in mutated)  # drop both defaults
 
 
 def test_mutate_default_argument_kwonly():
@@ -458,6 +459,7 @@ def test_no_syntax_error_mutations_docstring():
         len(bad), "\n---\n".join(bad)
     )
 
+
 def test_mutate_number():
     source = "def f():\n    return 100\n"
     canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
@@ -562,6 +564,7 @@ def _make_db(tmp_path):
     """Create a Database at a temp path with one mutation and one result."""
     import zlib
     from mutation import make_uid
+
     db = Database(str(tmp_path / "test.mutation.db"))
     uid = make_uid()
     diff = b"--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
@@ -573,7 +576,7 @@ def _make_db(tmp_path):
 def test_diff_hash():
     h = diff_hash("hello")
     assert len(h) == 64  # sha256 hex digest
-    assert h == diff_hash("hello")   # deterministic
+    assert h == diff_hash("hello")  # deterministic
     assert h != diff_hash("world")
 
 
@@ -638,14 +641,18 @@ def test_mutation_ignored_gc_removes_stale(tmp_path):
 
 def test_mutation_ignored_gc_keeps_valid(tmp_path):
     import difflib
+
     py_file = tmp_path / "m.py"
     py_file.write_text("x = 1\n")
     source = stdlib_ast.unparse(stdlib_ast.parse("x = 1\n"))
-    diff_lines = list(difflib.unified_diff(
-        source.splitlines(keepends=True),
-        "x = 2\n".splitlines(keepends=True),
-        fromfile="a/m.py", tofile="b/m.py",
-    ))
+    diff_lines = list(
+        difflib.unified_diff(
+            source.splitlines(keepends=True),
+            "x = 2\n".splitlines(keepends=True),
+            fromfile="a/m.py",
+            tofile="b/m.py",
+        )
+    )
     diff_text = "".join(diff_lines)
     write_ignored_file(str(tmp_path), diff_text, "m.py", "")
     mutation_ignored_gc(str(tmp_path))

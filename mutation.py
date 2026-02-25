@@ -46,20 +46,18 @@ import shlex
 import sqlite3
 import subprocess
 import sys
-import sqlite3
 import time
 import types
 import zlib
-from ast import Constant
 
 from concurrent import futures
 from contextlib import contextmanager
 from copy import deepcopy
 from difflib import unified_diff
+
 from pathlib import Path
 
 from coverage import Coverage
-from pathlib import Path
 
 __version__ = (0, 5, 6)
 
@@ -1468,7 +1466,6 @@ def mutation_pass(args):  # TODO: rename
         msg = "no error with mutation: {} ({})"
         log.trace(msg, " ".join(command), out)
         with database_open(".", timeout=timeout) as db:
-
             db.set_result(uid, 0)
         return False
     else:
@@ -1954,7 +1951,6 @@ def mutation_list():
     for (uid, status) in uids:
         log.info("{}\t{}".format(uid.hex(), "skipped" if status == 1 else ""))
 
-
 def mutation_summary():
     root = Path(".")
     with database_open(root) as db:
@@ -2050,6 +2046,7 @@ def mutation_apply(uid):
     with database_open(".") as db:
         path, diff = db.get_mutation(uid)
     diff = zlib.decompress(diff).decode("utf8")
+
     with open(path, "r") as f:
         source = f.read()
     patched = patch(diff, ast.unparse(ast.parse(source)))
