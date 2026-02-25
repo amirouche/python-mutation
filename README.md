@@ -88,18 +88,50 @@ mutation play --include="src/*.py" -- pytest -x -v tests/unit/
 
 ## Mutations
 
-<details><summary>StatementDrop</summary>
+<details><summary>AugAssignToAssign</summary>
 
-Replace a covered statement with `pass`, verifying that no statement is inert dead code.
+Convert an augmented assignment (`x += v`) to a plain assignment (`x = v`), dropping the accumulation, verifying that the update operator is tested.
 
 ```python
 # before
-x = compute()
-validate(x)
+total += amount
 
 # after
-x = compute()
-pass
+total = amount
+```
+
+</details>
+
+<details><summary>BreakToReturn</summary>
+
+Replace `break` with `return`, exiting the enclosing function instead of just the loop, verifying that the loop's exit path is tested.
+
+```python
+# before
+for item in items:
+    if item.done:
+        break
+
+# after
+for item in items:
+    if item.done:
+        return
+```
+
+</details>
+
+<details><summary>Comparison</summary>
+
+Negate a comparison expression by wrapping it with `not (...)`, verifying that the direction of every comparison is tested.
+
+```python
+# before
+if x > 0:
+    process(x)
+
+# after
+if not (x > 0):
+    process(x)
 ```
 
 </details>
@@ -123,112 +155,32 @@ def main():
 
 </details>
 
-<details><summary>MutateNumber</summary>
+<details><summary>ForceConditional</summary>
 
-Replace an integer or float literal with a random value in the same bit-range, verifying that the exact numeric value is tested.
+Force the test of an if/while/assert/ternary to always be `True` or always `False`, verifying that both branches are meaningfully exercised.
 
 ```python
 # before
-TIMEOUT = 30
+if is_valid(x):
+    save(x)
 
 # after
-TIMEOUT = 17
+if True:
+    save(x)
 ```
 
 </details>
 
-<details><summary>MutateString</summary>
+<details><summary>MutateAssignment</summary>
 
-Prepend a fixed prefix to a string or bytes literal, verifying that callers check the actual content.
-
-```python
-# before
-label = "hello"
-
-# after
-label = "mutated string hello"
-```
-
-</details>
-
-<details><summary>MutateKeyword</summary>
-
-Rotate flow keywords (break/continue/pass), swap boolean constants (True/False/None), and flip boolean operators (and/or).
+Replace the right-hand side of a plain assignment with `None`, verifying that the assigned value is not silently ignored.
 
 ```python
 # before
-while True:
-    if done:
-        break
+result = compute()
 
 # after
-while True:
-    if done:
-        continue
-```
-
-</details>
-
-<details><summary>Comparison</summary>
-
-Negate a comparison expression by wrapping it with `not (...)`, verifying that the direction of every comparison is tested.
-
-```python
-# before
-if x > 0:
-    process(x)
-
-# after
-if not (x > 0):
-    process(x)
-```
-
-</details>
-
-<details><summary>MutateOperator</summary>
-
-Replace an arithmetic, bitwise, shift, or comparison operator with another in the same group, verifying the exact operator matters.
-
-```python
-# before
-result = a + b
-
-# after
-result = a - b
-```
-
-</details>
-
-<details><summary>MutateMatchCase</summary>
-
-Remove one case branch at a time from a match statement (Python 3.10+ only), verifying that each branch is exercised by the test suite.
-
-```python
-# before
-match command:
-    case "quit":
-        quit()
-    case "go":
-        go()
-
-# after
-match command:
-    case "go":
-        go()
-```
-
-</details>
-
-<details><summary>MutateStringMethod</summary>
-
-Swap directionally symmetric string methods (lower↔upper, lstrip↔rstrip, find↔rfind, ljust↔rjust, removeprefix↔removesuffix, partition↔rpartition, split↔rsplit), verifying that the direction matters.
-
-```python
-# before
-name = text.lower()
-
-# after
-name = text.upper()
+result = None
 ```
 
 </details>
@@ -247,18 +199,49 @@ result = process(None, config)
 
 </details>
 
-<details><summary>ForceConditional</summary>
+<details><summary>MutateContainment</summary>
 
-Force the test of an if/while/assert/ternary to always be `True` or always `False`, verifying that both branches are meaningfully exercised.
+Swap `in` ↔ `not in` in membership tests, verifying that the expected membership relationship is directly tested.
 
 ```python
 # before
-if is_valid(x):
-    save(x)
+if key in cache:
+    return cache[key]
 
 # after
-if True:
-    save(x)
+if key not in cache:
+    return cache[key]
+```
+
+</details>
+
+<details><summary>MutateContextManager</summary>
+
+Strip context managers from a `with` statement one at a time, keeping the body, verifying that each manager's effect is tested.
+
+```python
+# before
+with lock:
+    update_shared_state()
+
+# after
+update_shared_state()
+```
+
+</details>
+
+<details><summary>MutateDefaultArgument</summary>
+
+Remove leading default argument values one at a time, making parameters required, verifying that callers always supply them explicitly.
+
+```python
+# before
+def connect(host, port=8080, timeout=30):
+    ...
+
+# after
+def connect(host, port, timeout=30):
+    ...
 ```
 
 </details>
@@ -283,266 +266,16 @@ except Exception:
 
 </details>
 
-<details><summary>ZeroIteration</summary>
+<details><summary>MutateFString</summary>
 
-Replace a for-loop's iterable with an empty list, forcing the body to never execute, verifying that callers handle empty-collection cases.
-
-```python
-# before
-for item in items:
-    process(item)
-
-# after
-for item in []:
-    process(item)
-```
-
-</details>
-
-<details><summary>RemoveDecorator</summary>
-
-Remove one decorator at a time from a decorated function or class, verifying that each decorator's effect is covered by tests.
+Replace each interpolated expression in an f-string with an empty string, verifying that callers check the formatted content rather than just the surrounding template.
 
 ```python
 # before
-@login_required
-def dashboard(request):
-    return render(request)
+msg = f"expected {actual}, got {result}"
 
 # after
-def dashboard(request):
-    return render(request)
-```
-
-</details>
-
-<details><summary>NegateCondition</summary>
-
-Wrap a bare (non-comparison) condition with `not`, inserting the logical inverse of the test, verifying that the truthiness of the value actually matters.
-
-```python
-# before
-if user.is_active:
-    allow()
-
-# after
-if not user.is_active:
-    allow()
-```
-
-</details>
-
-<details><summary>MutateReturn</summary>
-
-Replace a return value with a type-appropriate default (`None`, `0`, `False`, or `""`), verifying that callers check what the function returns.
-
-```python
-# before
-def get_count():
-    return len(items)
-
-# after
-def get_count():
-    return 0
-```
-
-</details>
-
-<details><summary>MutateLambda</summary>
-
-Replace the body of a lambda with `None` (or `0` when the body is already `None`), verifying that the lambda's computation is actually used.
-
-```python
-# before
-transform = lambda x: x * 2
-
-# after
-transform = lambda x: None
-```
-
-</details>
-
-<details><summary>MutateAssignment</summary>
-
-Replace the right-hand side of a plain assignment with `None`, verifying that the assigned value is not silently ignored.
-
-```python
-# before
-result = compute()
-
-# after
-result = None
-```
-
-</details>
-
-<details><summary>AugAssignToAssign</summary>
-
-Convert an augmented assignment (`x += v`) to a plain assignment (`x = v`), dropping the accumulation, verifying that the update operator is tested.
-
-```python
-# before
-total += amount
-
-# after
-total = amount
-```
-
-</details>
-
-<details><summary>RemoveUnaryOp</summary>
-
-Strip a unary operator (`not`, `-`, `~`) and leave only the operand, verifying that the operator's effect is covered by tests.
-
-```python
-# before
-if not flag:
-    skip()
-
-# after
-if flag:
-    skip()
-```
-
-</details>
-
-<details><summary>MutateIdentity</summary>
-
-Swap `is` ↔ `is not` in identity comparisons, verifying that the expected identity relationship is directly tested.
-
-```python
-# before
-if obj is None:
-    init()
-
-# after
-if obj is not None:
-    init()
-```
-
-</details>
-
-<details><summary>MutateContainment</summary>
-
-Swap `in` ↔ `not in` in membership tests, verifying that the expected membership relationship is directly tested.
-
-```python
-# before
-if key in cache:
-    return cache[key]
-
-# after
-if key not in cache:
-    return cache[key]
-```
-
-</details>
-
-<details><summary>BreakToReturn</summary>
-
-Replace `break` with `return`, exiting the enclosing function instead of just the loop, verifying that the loop's exit path is tested.
-
-```python
-# before
-for item in items:
-    if item.done:
-        break
-
-# after
-for item in items:
-    if item.done:
-        return
-```
-
-</details>
-
-<details><summary>SwapArguments</summary>
-
-Swap each pair of positional call arguments, verifying that argument order is tested.
-
-```python
-# before
-result = process(source, dest)
-
-# after
-result = process(dest, source)
-```
-
-</details>
-
-<details><summary>MutateSlice</summary>
-
-Drop the lower or upper bound of a slice (`a[i:j]` → `a[:j]` or `a[i:]`) and negate the step (`a[::2]` → `a[::-2]`), verifying that slice boundary conditions and direction are tested.
-
-```python
-# before
-chunk = data[start:end]
-
-# after
-chunk = data[:end]
-```
-
-</details>
-
-<details><summary>MutateYield</summary>
-
-Replace the value of a yield expression with `None`, verifying that the yielded value is actually used by callers.
-
-```python
-# before
-def generate():
-    yield compute()
-
-# after
-def generate():
-    yield None
-```
-
-</details>
-
-<details><summary>MutateDefaultArgument</summary>
-
-Remove leading default argument values one at a time, making parameters required, verifying that callers always supply them explicitly.
-
-```python
-# before
-def connect(host, port=8080, timeout=30):
-    ...
-
-# after
-def connect(host, port, timeout=30):
-    ...
-```
-
-</details>
-
-<details><summary>MutateIterator</summary>
-
-Wrap a for-loop's iterable in `reversed()`, verifying that iteration order assumptions are tested.
-
-```python
-# before
-for item in queue:
-    process(item)
-
-# after
-for item in reversed(queue):
-    process(item)
-```
-
-</details>
-
-<details><summary>MutateContextManager</summary>
-
-Strip context managers from a `with` statement one at a time, keeping the body, verifying that each manager's effect is tested.
-
-```python
-# before
-with lock:
-    update_shared_state()
-
-# after
-update_shared_state()
+msg = f"expected , got {result}"
 ```
 
 </details>
@@ -564,16 +297,283 @@ def increment():
 
 </details>
 
-<details><summary>MutateFString</summary>
+<details><summary>MutateIdentity</summary>
 
-Replace each interpolated expression in an f-string with an empty string, verifying that callers check the formatted content rather than just the surrounding template.
+Swap `is` ↔ `is not` in identity comparisons, verifying that the expected identity relationship is directly tested.
 
 ```python
 # before
-msg = f"expected {actual}, got {result}"
+if obj is None:
+    init()
 
 # after
-msg = f"expected , got {result}"
+if obj is not None:
+    init()
+```
+
+</details>
+
+<details><summary>MutateIterator</summary>
+
+Wrap a for-loop's iterable in `reversed()`, verifying that iteration order assumptions are tested.
+
+```python
+# before
+for item in queue:
+    process(item)
+
+# after
+for item in reversed(queue):
+    process(item)
+```
+
+</details>
+
+<details><summary>MutateKeyword</summary>
+
+Rotate flow keywords (break/continue/pass), swap boolean constants (True/False/None), and flip boolean operators (and/or).
+
+```python
+# before
+while True:
+    if done:
+        break
+
+# after
+while True:
+    if done:
+        continue
+```
+
+</details>
+
+<details><summary>MutateLambda</summary>
+
+Replace the body of a lambda with `None` (or `0` when the body is already `None`), verifying that the lambda's computation is actually used.
+
+```python
+# before
+transform = lambda x: x * 2
+
+# after
+transform = lambda x: None
+```
+
+</details>
+
+<details><summary>MutateMatchCase</summary>
+
+Remove one case branch at a time from a match statement (Python 3.10+ only), verifying that each branch is exercised by the test suite.
+
+```python
+# before
+match command:
+    case "quit":
+        quit()
+    case "go":
+        go()
+
+# after
+match command:
+    case "go":
+        go()
+```
+
+</details>
+
+<details><summary>MutateNumber</summary>
+
+Replace an integer or float literal with a random value in the same bit-range, verifying that the exact numeric value is tested.
+
+```python
+# before
+TIMEOUT = 30
+
+# after
+TIMEOUT = 17
+```
+
+</details>
+
+<details><summary>MutateOperator</summary>
+
+Replace an arithmetic, bitwise, shift, or comparison operator with another in the same group, verifying the exact operator matters.
+
+```python
+# before
+result = a + b
+
+# after
+result = a - b
+```
+
+</details>
+
+<details><summary>MutateReturn</summary>
+
+Replace a return value with a type-appropriate default (`None`, `0`, `False`, or `""`), verifying that callers check what the function returns.
+
+```python
+# before
+def get_count():
+    return len(items)
+
+# after
+def get_count():
+    return 0
+```
+
+</details>
+
+<details><summary>MutateSlice</summary>
+
+Drop the lower or upper bound of a slice (`a[i:j]` → `a[:j]` or `a[i:]`) and negate the step (`a[::2]` → `a[::-2]`), verifying that slice boundary conditions and direction are tested.
+
+```python
+# before
+chunk = data[start:end]
+
+# after
+chunk = data[:end]
+```
+
+</details>
+
+<details><summary>MutateString</summary>
+
+Prepend a fixed prefix to a string or bytes literal, verifying that callers check the actual content.
+
+```python
+# before
+label = "hello"
+
+# after
+label = "mutated string hello"
+```
+
+</details>
+
+<details><summary>MutateStringMethod</summary>
+
+Swap directionally symmetric string methods (lower↔upper, lstrip↔rstrip, find↔rfind, ljust↔rjust, removeprefix↔removesuffix, partition↔rpartition, split↔rsplit), verifying that the direction matters.
+
+```python
+# before
+name = text.lower()
+
+# after
+name = text.upper()
+```
+
+</details>
+
+<details><summary>MutateYield</summary>
+
+Replace the value of a yield expression with `None`, verifying that the yielded value is actually used by callers.
+
+```python
+# before
+def generate():
+    yield compute()
+
+# after
+def generate():
+    yield None
+```
+
+</details>
+
+<details><summary>NegateCondition</summary>
+
+Wrap a bare (non-comparison) condition with `not`, inserting the logical inverse of the test, verifying that the truthiness of the value actually matters.
+
+```python
+# before
+if user.is_active:
+    allow()
+
+# after
+if not user.is_active:
+    allow()
+```
+
+</details>
+
+<details><summary>RemoveDecorator</summary>
+
+Remove one decorator at a time from a decorated function or class, verifying that each decorator's effect is covered by tests.
+
+```python
+# before
+@login_required
+def dashboard(request):
+    return render(request)
+
+# after
+def dashboard(request):
+    return render(request)
+```
+
+</details>
+
+<details><summary>RemoveUnaryOp</summary>
+
+Strip a unary operator (`not`, `-`, `~`) and leave only the operand, verifying that the operator's effect is covered by tests.
+
+```python
+# before
+if not flag:
+    skip()
+
+# after
+if flag:
+    skip()
+```
+
+</details>
+
+<details><summary>StatementDrop</summary>
+
+Replace a covered statement with `pass`, verifying that no statement is inert dead code.
+
+```python
+# before
+x = compute()
+validate(x)
+
+# after
+x = compute()
+pass
+```
+
+</details>
+
+<details><summary>SwapArguments</summary>
+
+Swap each pair of positional call arguments, verifying that argument order is tested.
+
+```python
+# before
+result = process(source, dest)
+
+# after
+result = process(dest, source)
+```
+
+</details>
+
+<details><summary>ZeroIteration</summary>
+
+Replace a for-loop's iterable with an empty list, forcing the body to never execute, verifying that callers handle empty-collection cases.
+
+```python
+# before
+for item in items:
+    process(item)
+
+# after
+for item in []:
+    process(item)
 ```
 
 </details>
