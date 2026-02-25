@@ -7,6 +7,7 @@ from mutation import (
     MutateContainment,
     MutateIdentity,
     Mutation,
+    RemoveUnaryOp,
     iter_deltas,
 )
 from mutation import patch as mutation_patch
@@ -21,6 +22,16 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_remove_unary_op():
+    source = "def f(x):\n    return not x\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [RemoveUnaryOp()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("not" not in m.split("def")[1] for m in mutated)
 
 
 def test_mutate_identity():

@@ -506,6 +506,26 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class RemoveUnaryOp(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, ast.UnaryOp) and isinstance(
+            node.op, (ast.Not, ast.USub, ast.Invert)
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None:
+            return
+        operand = node_copy.operand
+        if idx is not None:
+            getattr(parent, field)[idx] = operand
+        else:
+            setattr(parent, field, operand)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
 class MutateIdentity(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, ast.Compare) and any(
