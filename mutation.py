@@ -506,6 +506,21 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class RemoveDecorator(metaclass=Mutation):
+    def predicate(self, node):
+        return (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and len(node.decorator_list) > 0
+        )
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.decorator_list)):
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.decorator_list.pop(i)
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
 class NegateCondition(metaclass=Mutation):
     def predicate(self, node):
         return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp)) and not isinstance(
