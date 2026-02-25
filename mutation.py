@@ -46,6 +46,7 @@ import shlex
 import sqlite3
 import subprocess
 import sys
+import sqlite3
 import time
 import types
 import zlib
@@ -58,7 +59,7 @@ from difflib import unified_diff
 from pathlib import Path
 
 from coverage import Coverage
-from docopt import docopt
+from pathlib import Path
 
 __version__ = (0, 5, 6)
 
@@ -1467,6 +1468,7 @@ def mutation_pass(args):  # TODO: rename
         msg = "no error with mutation: {} ({})"
         log.trace(msg, " ".join(command), out)
         with database_open(".", timeout=timeout) as db:
+
             db.set_result(uid, 0)
         return False
     else:
