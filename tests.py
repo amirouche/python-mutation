@@ -5,6 +5,7 @@ from foobar.ex import decrement_by_two
 from mutation import (
     AugAssignToAssign,
     BreakToReturn,
+    ForceConditional,
     MutateAssignment,
     MutateContainment,
     MutateExceptionHandler,
@@ -30,6 +31,17 @@ def test_one():
 def test_two():
     x = decrement_by_two(44)
     assert x < 44
+
+
+def test_force_conditional():
+    source = "def f(x):\n    if x > 0:\n        return 1\n    return 0\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [ForceConditional()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("if True" in m for m in mutated)
+    assert any("if False" in m for m in mutated)
 
 
 def test_mutate_exception_handler():
