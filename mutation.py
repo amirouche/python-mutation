@@ -506,6 +506,25 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class NegateCondition(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp)) and not isinstance(
+            node.test, ast.Compare
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        test = node_copy.test
+        node_copy.test = ast.UnaryOp(
+            op=ast.Not(),
+            operand=test,
+            lineno=test.lineno,
+            col_offset=test.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
 class MutateReturn(metaclass=Mutation):
     DEFAULTS = [None, 0, False, ""]
 
