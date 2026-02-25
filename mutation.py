@@ -506,6 +506,22 @@ class MutateOperator(metaclass=Mutation):
                     yield tree_copy, node_copy
 
 
+class BreakToReturn(metaclass=Mutation):
+    def predicate(self, node):
+        return isinstance(node, ast.Break)
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        getattr(parent, field)[idx] = ast.Return(
+            value=None, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
 def diff(source, target, filename=""):
     lines = unified_diff(
         source.split("\n"), target.split("\n"), filename, filename, lineterm=""
