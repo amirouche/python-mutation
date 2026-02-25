@@ -41,7 +41,6 @@ import sqlite3
 import sys
 import time
 import types
-from ast import Constant
 from concurrent import futures
 from contextlib import contextmanager
 from copy import deepcopy
@@ -49,13 +48,11 @@ from datetime import timedelta
 from difflib import unified_diff
 from uuid import UUID
 
-import parso
 import pygments
 import pygments.formatters
 import pygments.lexers
 import zstandard as zstd
 from aiostream import pipe, stream
-from astunparse import unparse
 from coverage import Coverage
 from docopt import docopt
 from humanize import precisedelta
@@ -162,24 +159,30 @@ def glob2predicate(patterns):
     return predicate
 
 
-def node_iter(node, level=1):
-    yield node
-    for child in node.children:
-        if not getattr(child, "children", False):
-            yield child
-            continue
-
-        yield from node_iter(child, level + 1)
+def ast_walk(tree):
+    """Depth-first traversal of an AST, yielding every node."""
+    yield tree
+    for child in ast.iter_child_nodes(tree):
+        yield from ast_walk(child)
 
 
-def node_copy_tree(node, index):
-    root = node.get_root_node()
-    root = deepcopy(root)
-    iterator = itertools.dropwhile(
-        lambda x: x[0] != index, zip(itertools.count(0), node_iter(root))
-    )
-    index, node = next(iterator)
-    return root, node
+def copy_tree_at(tree, index):
+    """Deep-copy *tree* and return (copy, node_at_index_in_copy)."""
+    tree_copy = deepcopy(tree)
+    return tree_copy, list(ast_walk(tree_copy))[index]
+
+
+def get_parent_field_idx(tree, node):
+    """Return (parent, field_name, list_index_or_None) for *node* in *tree*."""
+    for parent in ast_walk(tree):
+        for field, value in ast.iter_fields(parent):
+            if isinstance(value, list):
+                for i, child in enumerate(value):
+                    if child is node:
+                        return parent, field, i
+            elif value is node:
+                return parent, field, None
+    return None, None, None
 
 
 @contextmanager
@@ -291,20 +294,21 @@ class Mutation(type):
 class StatementDrop(metaclass=Mutation):
 
     deadcode_detection = True
-    NEWLINE = "a = 42\n"
 
     def predicate(self, node):
-        return "stmt" in node.type and node.type != "expr_stmt"
+        return isinstance(node, ast.stmt) and not isinstance(
+            node, (ast.Expr, ast.Pass, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        )
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        index = new.parent.children.index(new)
-        passi = parso.parse("pass").children[0]
-        passi.prefix = new.get_first_leaf().prefix
-        new.parent.children[index] = passi
-        newline = parso.parse(type(self).NEWLINE).children[0].children[1]
-        new.parent.children.insert(index + 1, newline)
-        yield root, new
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        replacement = ast.Pass(lineno=node_copy.lineno, col_offset=node_copy.col_offset)
+        getattr(parent, field)[idx] = replacement
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
 
 
 class DefinitionDrop(metaclass=Mutation):
@@ -312,15 +316,19 @@ class DefinitionDrop(metaclass=Mutation):
     deadcode_detection = True
 
     def predicate(self, node):
-        # There is also node.type = 'lambdadef' but lambadef are
-        # always part of a assignation statement. So, that case is
-        # handled in StatementDrop.
-        return node.type in ("classdef", "funcdef")
+        return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        new.parent.children.remove(new)
-        yield root, new
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        body = getattr(parent, field)
+        if len(body) <= 1:
+            return
+        body.pop(idx)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
 
 
 def chunks(iterable, n):
@@ -335,18 +343,19 @@ class MutateNumber(metaclass=Mutation):
     COUNT = 5
 
     def predicate(self, node):
-        return node.type == "number"
+        return (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, (int, float))
+            and not isinstance(node.value, bool)
+        )
 
-    def mutate(self, node, index):
-        value = eval(node.value)
+    def mutate(self, node, index, tree):
+        value = node.value
 
         if isinstance(value, int):
-
             def randomize(x):
                 return random.randint(0, x)
-
         else:
-
             def randomize(x):
                 return random.random() * x
 
@@ -357,101 +366,144 @@ class MutateNumber(metaclass=Mutation):
         count = 0
         while count != self.COUNT:
             count += 1
-            root, new = node_copy_tree(node, index)
-            new.value = str(randomize(2 ** size))
-            if new.value == node.value:
+            new_value = randomize(2 ** size)
+            if new_value == value:
                 continue
-            yield root, new
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.value = new_value
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
 
 
 class MutateString(metaclass=Mutation):
     def predicate(self, node):
-        # str or bytes.
-        return node.type == "string"
+        return isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes))
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        value = eval(new.value)
-        if isinstance(value, bytes):
-            value = b"coffeebad" + value
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        if isinstance(node_copy.value, bytes):
+            node_copy.value = b"coffeebad" + node_copy.value
         else:
-            value = "mutated string " + value
-        value = Constant(value=value, kind="")
-        value = unparse(value).strip()
-        new.value = value
-        yield root, new
+            node_copy.value = "mutated string " + node_copy.value
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
 
 
 class MutateKeyword(metaclass=Mutation):
 
-    KEYWORDS = set(["continue", "break", "pass"])
-    SINGLETON = set(["True", "False", "None"])
-    # Support xor operator ^
-    BOOLEAN = set(["and", "or"])
-
-    TARGETS = KEYWORDS | SINGLETON | BOOLEAN
+    FLOW_STMTS = (ast.Continue, ast.Break, ast.Pass)
+    BOOL_OPS = (ast.And, ast.Or)
 
     def predicate(self, node):
-        return node.type == "keyword" and node.value in type(self).TARGETS
+        if isinstance(node, self.FLOW_STMTS):
+            return True
+        if isinstance(node, ast.Constant) and (
+            node.value is True or node.value is False or node.value is None
+        ):
+            return True
+        if isinstance(node, ast.BoolOp):
+            return True
+        return False
 
-    def mutate(self, node, index):
-        value = node.value
-        for targets in [self.KEYWORDS, self.SINGLETON, self.BOOLEAN]:
-            if value in targets:
-                break
-        else:
-            raise NotImplementedError
+    def mutate(self, node, index, tree):
+        if isinstance(node, self.FLOW_STMTS):
+            for new_cls in self.FLOW_STMTS:
+                if isinstance(node, new_cls):
+                    continue
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+                if parent is None or idx is None:
+                    continue
+                getattr(parent, field)[idx] = new_cls(
+                    lineno=node_copy.lineno, col_offset=node_copy.col_offset
+                )
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
 
-        for target in targets:
-            if target == value:
-                continue
-            root, new = node_copy_tree(node, index)
-            new.value = target
-            yield root, new
+        elif isinstance(node, ast.Constant):
+            if node.value is True:
+                swaps = [False, None]
+            elif node.value is False:
+                swaps = [True, None]
+            else:
+                swaps = [True, False]
+            for new_value in swaps:
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.value = new_value
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+        elif isinstance(node, ast.BoolOp):
+            for new_op_cls in self.BOOL_OPS:
+                if isinstance(node.op, new_op_cls):
+                    continue
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.op = new_op_cls()
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
 
 
 class Comparison(metaclass=Mutation):
     def predicate(self, node):
-        return node == "comparison"
+        return isinstance(node, ast.Compare)
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        not_test = parso.parse("not ({})".format(new.get_code()))
-        index = new.parent.children.index(new)
-        new.parent.children[index] = not_test
-        return root, new
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None:
+            return
+        not_node = ast.UnaryOp(
+            op=ast.Not(),
+            operand=node_copy,
+            lineno=node_copy.lineno,
+            col_offset=node_copy.col_offset,
+        )
+        if idx is not None:
+            getattr(parent, field)[idx] = not_node
+        else:
+            setattr(parent, field, not_node)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, not_node
 
 
 class MutateOperator(metaclass=Mutation):
 
-    BINARY = ["+", "-", "%", "|", "&", "//", "/", "*", "^", "**", "@"]
-    BITWISE = ["<<", ">>"]
-    COMPARISON = ["<", "<=", "==", "!=", ">=", ">"]
-    ASSIGNEMENT = ["="] + [x + "=" for x in BINARY + BITWISE]
-
-    # TODO support OPERATORS_CONTAINS = ["in", "not in"]
-
-    OPERATORS = [
-        BINARY,
-        BITWISE,
-        BITWISE,
-        COMPARISON,
-        ASSIGNEMENT,
+    BINARY_OPS = [
+        ast.Add, ast.Sub, ast.Mod, ast.BitOr, ast.BitAnd,
+        ast.FloorDiv, ast.Div, ast.Mult, ast.BitXor, ast.Pow, ast.MatMult,
     ]
+    SHIFT_OPS = [ast.LShift, ast.RShift]
+    CMP_OPS = [ast.Lt, ast.LtE, ast.Eq, ast.NotEq, ast.GtE, ast.Gt]
+
+    BINOP_GROUPS = [BINARY_OPS, SHIFT_OPS]
 
     def predicate(self, node):
-        return node.type == "operator"
+        return isinstance(node, (ast.BinOp, ast.AugAssign, ast.Compare))
 
-    def mutate(self, node, index):
-        for operators in type(self).OPERATORS:
-            if node.value not in operators:
-                continue
-            for new_operator in operators:
-                if node.value == new_operator:
+    def mutate(self, node, index, tree):
+        if isinstance(node, (ast.BinOp, ast.AugAssign)):
+            for op_group in self.BINOP_GROUPS:
+                if type(node.op) not in op_group:
                     continue
-                root, new = node_copy_tree(node, index)
-                new.value = new_operator
-                yield root, new
+                for new_op_cls in op_group:
+                    if new_op_cls is type(node.op):
+                        continue
+                    tree_copy, node_copy = copy_tree_at(tree, index)
+                    node_copy.op = new_op_cls()
+                    ast.fix_missing_locations(tree_copy)
+                    yield tree_copy, node_copy
+
+        elif isinstance(node, ast.Compare):
+            for i, op in enumerate(node.ops):
+                if type(op) not in self.CMP_OPS:
+                    continue
+                for new_op_cls in self.CMP_OPS:
+                    if new_op_cls is type(op):
+                        continue
+                    tree_copy, node_copy = copy_tree_at(tree, index)
+                    node_copy.ops[i] = new_op_cls()
+                    ast.fix_missing_locations(tree_copy)
+                    yield tree_copy, node_copy
 
 
 def diff(source, target, filename=""):
@@ -462,35 +514,34 @@ def diff(source, target, filename=""):
     return out
 
 
-def mutate(node, index, mutations):
+def mutate(node, index, tree, mutations):
     for mutation in mutations:
         if not mutation.predicate(node):
             continue
-        yield from mutation.mutate(node, index)
+        yield from mutation.mutate(node, index, tree)
 
 
-def interesting(new_node, coverage):
-    if getattr(new_node, "line", False):
-        return new_node.line in coverage
-    return new_node.get_first_leaf().line in coverage
+def interesting(node, coverage):
+    return getattr(node, "lineno", None) in coverage
 
 
 def iter_deltas(source, path, coverage, mutations):
-    tree = parso.parse(source)
+    tree = ast.parse(source)
+    canonical = ast.unparse(tree)
     ignored = 0
     invalid = 0
-    for (index, (index, node)) in enumerate(zip(itertools.count(0), node_iter(tree))):
-        for root, new_node in mutate(node, index, mutations):
+    for index, node in enumerate(ast_walk(tree)):
+        for tree_copy, new_node in mutate(node, index, tree, mutations):
             if not interesting(new_node, coverage):
                 ignored += 1
                 continue
-            target = root.get_code()
+            target = ast.unparse(tree_copy)
             try:
                 ast.parse(target)
             except SyntaxError:
                 invalid += 1
                 continue
-            delta = diff(source, target, path)
+            delta = diff(canonical, target, path)
             yield delta
     if ignored > 1:
         msg = "Ignored {} mutations from file at {}"
@@ -556,7 +607,7 @@ def install_module_loader(uid):
     with open(path) as f:
         source = f.read()
 
-    patched = patch(diff, source)
+    patched = patch(diff, ast.unparse(ast.parse(source)))
 
     components = path[:-3].split("/")
 
@@ -1099,7 +1150,7 @@ def mutation_apply(uid):
     diff = zstd.decompress(diff).decode("utf8")
     with open(path, "r") as f:
         source = f.read()
-    patched = patch(diff, source)
+    patched = patch(diff, ast.unparse(ast.parse(source)))
     with open(path, "w") as f:
         f.write(patched)
 
