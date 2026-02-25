@@ -1343,10 +1343,10 @@ def check_tests(root, seed, arguments, command=None):
             sys.exit(2)
 
         # Otherwise, it is possible to run the tests but without
-        # parallelization.
-        msg = "Setting max_workers=1 because tests do not pass in parallel"
+        # parallelization via xdist. Mutations can still be tested
+        # concurrently (each as an independent serial pytest run).
+        msg = "Tests do not pass with xdist; each mutation will run without --numprocesses"
         log.warning(msg)
-        max_workers = 1
         alpha = alpha()
 
     msg = "Approximate time required to run the tests once: {}..."
