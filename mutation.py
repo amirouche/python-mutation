@@ -1222,8 +1222,9 @@ def run(command, timeout=None, silent=True):
 
 
 def sampling_setup(sampling, total):
+
     if sampling is None:
-        return lambda x: x, total
+        sampling = "100%"
 
     if sampling.endswith("%"):
         # randomly choose percent mutations
@@ -1438,7 +1439,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     command.extend(arguments["<file-or-directory>"])
 
     eta = humanize(alpha * total / max_workers)
-    log.info("At most, it will take {} to run the mutations", eta)
+    log.info("Worst-case estimate (if every mutation takes the full test suite): {}", eta)
 
     timeout = alpha * 2
     rows = db.list_mutations()
@@ -1449,44 +1450,12 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     make_sample, total = sampling_setup(sampling, total)
     uids = make_sample(uids)
 
-    step = 10
-
-    gamma = time.perf_counter()
-
-    remaining = total
-
     log.info("Testing mutations in progress...")
 
-    with tqdm(total=100) as progress:
+    with tqdm(total=total, desc="Mutations") as progress:
 
         def on_progress(_):
-            nonlocal remaining
-            nonlocal step
-            nonlocal gamma
-
-            remaining -= 1
-
-            if (remaining % step) == 0:
-
-                percent = 100 - ((remaining / total) * 100)
-                now = time.perf_counter()
-                delta = now - gamma
-                eta = (delta / step) * remaining
-
-                progress.update(int(percent))
-                progress.set_description("ETA {}".format(humanize(eta)))
-
-                msg = "Mutation tests {:.2f}% done..."
-                log.debug(msg, percent)
-                log.debug("ETA {}...", humanize(eta))
-
-                for speed in [10_000, 1_000, 100, 10, 1]:
-                    if total // speed == 0:
-                        continue
-                    step = speed
-                    break
-
-                gamma = time.perf_counter()
+            progress.update(1)
 
         with timeit() as delta:
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -1494,7 +1463,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
                     loop, pool, on_progress, mutation_pass, uids
                 )
 
-        errors = db.count_results()
+    errors = db.count_results()
 
     if errors > 0:
         msg = "It took {} to compute {} mutation failures!"
