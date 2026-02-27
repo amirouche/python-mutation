@@ -38,6 +38,7 @@ import random
 import re
 import shlex
 import sqlite3
+import subprocess
 import sys
 import time
 import types
@@ -1206,19 +1207,24 @@ def database_open(root, recreate=False, timeout=300):
     return Database(str(db), timeout=timeout)
 
 
-def run(command, timeout=None, silent=True):
+def run(command, timeout=None, silent=True, verbose=False):
     if timeout and timeout < 60:
         timeout = 60
 
-    if timeout:
-        command.insert(0, "timeout {}".format(timeout))
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    devnull = subprocess.DEVNULL if (silent and not verbose) else None
 
-    command.insert(0, "PYTHONDONTWRITEBYTECODE=1")
-
-    if silent:
-        command.append("> /dev/null 2>&1")
-
-    return os.system(" ".join(command))
+    try:
+        result = subprocess.run(
+            command,
+            env=env,
+            timeout=timeout,
+            stdout=devnull,
+            stderr=devnull,
+        )
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        return 1
 
 
 def sampling_setup(sampling, total):
@@ -1307,8 +1313,10 @@ def check_tests(root, seed, arguments, command=None):
             ]
         )
 
+    verbose = arguments.get("--verbose", False)
+
     with timeit() as alpha:
-        out = run(command)
+        out = run(command, verbose=verbose)
 
     if out == 0:
         log.info("Tests are green 💚")
@@ -1335,7 +1343,7 @@ def check_tests(root, seed, arguments, command=None):
         ]
 
         with timeit() as alpha:
-            out = run(command)
+            out = run(command, verbose=verbose)
 
         if out != 0:
             msg = "Tests are definitly red! Return code is {}!!"
