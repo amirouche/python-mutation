@@ -10,7 +10,7 @@ init: ## Prepare the host sytem for development
 	@echo "\033[95m\n\nYou may now run 'make check'.\n\033[0m"
 
 check-only:
-	python3 mutation.py play tests.py --include="foobar/ex.py,foobar/__init__.py" --exclude="tests.py" || exit 1
+	python3 mutation.py play tests.py --include="foobar/ex.py" --include="foobar/__init__.py" --exclude="tests.py" || exit 1
 
 check: ## Run tests
 	make check-only
