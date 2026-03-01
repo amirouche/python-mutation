@@ -534,18 +534,18 @@ if hasattr(ast, "Match"):
 
 
 _STRING_METHOD_SWAPS = {
-    "lower": "upper", "upper": "lower",
-    "lstrip": "rstrip", "rstrip": "lstrip",
-    "find": "rfind", "rfind": "find",
-    "ljust": "rjust", "rjust": "ljust",
-    "removeprefix": "removesuffix", "removesuffix": "removeprefix",
-    "partition": "rpartition", "rpartition": "partition",
-    "split": "rsplit", "rsplit": "split",
+    "lower": ["upper"], "upper": ["lower"],
+    "lstrip": ["rstrip", "removeprefix"], "rstrip": ["lstrip", "removesuffix"],
+    "find": ["rfind"], "rfind": ["find"],
+    "ljust": ["rjust"], "rjust": ["ljust"],
+    "removeprefix": ["removesuffix"], "removesuffix": ["removeprefix"],
+    "partition": ["rpartition"], "rpartition": ["partition"],
+    "split": ["rsplit"], "rsplit": ["split"],
 }
 
 
 class MutateStringMethod(metaclass=Mutation):
-    """Swap directionally symmetric string methods (lower↔upper, lstrip↔rstrip, find↔rfind, ljust↔rjust, removeprefix↔removesuffix, partition↔rpartition, split↔rsplit), verifying that the direction matters."""
+    """Swap directionally symmetric string methods (lower↔upper, lstrip↔rstrip, lstrip↔removeprefix, rstrip↔removesuffix, find↔rfind, ljust↔rjust, removeprefix↔removesuffix, partition↔rpartition, split↔rsplit), verifying that the direction matters."""
 
     def predicate(self, node):
         return (
@@ -555,10 +555,11 @@ class MutateStringMethod(metaclass=Mutation):
         )
 
     def mutate(self, node, index, tree):
-        tree_copy, node_copy = copy_tree_at(tree, index)
-        node_copy.func.attr = _STRING_METHOD_SWAPS[node.func.attr]
-        ast.fix_missing_locations(tree_copy)
-        yield tree_copy, node_copy
+        for target_attr in _STRING_METHOD_SWAPS[node.func.attr]:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.func.attr = target_attr
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
 
 
 class MutateCallArgs(metaclass=Mutation):
