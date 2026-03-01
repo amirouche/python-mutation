@@ -329,6 +329,8 @@ def test_mutate_iterator():
     assert deltas
     mutated = [mutation_patch(d, canonical) for d in deltas]
     assert any("reversed(items)" in m for m in mutated)
+    assert any("shuffle" in m for m in mutated)
+    assert any("_mutation_seq_" in m for m in mutated)
 
 
 def test_mutate_iterator_no_double_wrap():

@@ -926,7 +926,7 @@ class MutateDefaultArgument(metaclass=Mutation):
 
 
 class MutateIterator(metaclass=Mutation):
-    """Wrap a for-loop's iterable in reversed(), verifying that iteration order assumptions are tested."""
+    """Wrap a for-loop's iterable in reversed() or random.shuffle(), verifying that iteration order assumptions are tested."""
 
     def predicate(self, node):
         return isinstance(node, (ast.For, ast.AsyncFor)) and not (
@@ -936,6 +936,7 @@ class MutateIterator(metaclass=Mutation):
         )
 
     def mutate(self, node, index, tree):
+        # Mutation 1: reversed(iterable)
         tree_copy, node_copy = copy_tree_at(tree, index)
         node_copy.iter = ast.Call(
             func=ast.Name(id="reversed", ctx=ast.Load()),
@@ -943,6 +944,49 @@ class MutateIterator(metaclass=Mutation):
             keywords=[],
             lineno=node_copy.iter.lineno,
             col_offset=node_copy.iter.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+        # Mutation 2: (__import__('random').shuffle(_s := list(iterable)) or _s)
+        # Shuffles the iterable in-place without adding an import statement.
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        lineno = node_copy.iter.lineno
+        col = node_copy.iter.col_offset
+        seq_name = ast.Name(id="_mutation_seq_", ctx=ast.Store(), lineno=lineno, col_offset=col)
+        list_call = ast.Call(
+            func=ast.Name(id="list", ctx=ast.Load(), lineno=lineno, col_offset=col),
+            args=[node_copy.iter],
+            keywords=[],
+            lineno=lineno,
+            col_offset=col,
+        )
+        walrus = ast.NamedExpr(target=seq_name, value=list_call, lineno=lineno, col_offset=col)
+        shuffle_call = ast.Call(
+            func=ast.Attribute(
+                value=ast.Call(
+                    func=ast.Name(id="__import__", ctx=ast.Load(), lineno=lineno, col_offset=col),
+                    args=[ast.Constant(value="random", lineno=lineno, col_offset=col)],
+                    keywords=[],
+                    lineno=lineno,
+                    col_offset=col,
+                ),
+                attr="shuffle",
+                ctx=ast.Load(),
+                lineno=lineno,
+                col_offset=col,
+            ),
+            args=[walrus],
+            keywords=[],
+            lineno=lineno,
+            col_offset=col,
+        )
+        seq_load = ast.Name(id="_mutation_seq_", ctx=ast.Load(), lineno=lineno, col_offset=col)
+        node_copy.iter = ast.BoolOp(
+            op=ast.Or(),
+            values=[shuffle_call, seq_load],
+            lineno=lineno,
+            col_offset=col,
         )
         ast.fix_missing_locations(tree_copy)
         yield tree_copy, node_copy
