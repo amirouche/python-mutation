@@ -57,6 +57,17 @@ def test_mutate_string_method():
     assert any("s.upper()" in m for m in mutated)
 
 
+def test_mutate_string_method_lstrip_multi_target():
+    # lstrip should produce both rstrip and removeprefix mutations
+    source = "def f(s):\n    return s.lstrip('x')\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateStringMethod()]))
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("rstrip" in m for m in mutated)
+    assert any("removeprefix" in m for m in mutated)
+
+
 def test_mutate_call_args():
     source = "def f(a, b):\n    return g(a, b)\n"
     canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
