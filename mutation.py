@@ -232,10 +232,11 @@ class Database:
         self._conn.commit()
 
     # --- mutations ---
-    def store_mutation(self, uid, path, diff):
-        self._conn.execute(
+    def store_mutations(self, rows):
+        """Insert multiple (uid, path, diff) rows in a single transaction."""
+        self._conn.executemany(
             "INSERT OR REPLACE INTO mutations (uid, path, diff) VALUES (?, ?, ?)",
-            (uid, path, diff),
+            rows,
         )
         self._conn.commit()
 
@@ -1422,11 +1423,9 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
 
             progress.update()
             total += len(items)
-            for path, delta in items:
-                # TODO: replace ULID with a content addressable hash.
-                uid = ULID().to_uuid().bytes
-                # delta is a compressed unified diff
-                db.store_mutation(uid, str(path), delta)
+            # TODO: replace ULID with a content addressable hash.
+            rows = [(ULID().to_uuid().bytes, str(path), delta) for path, delta in items]
+            db.store_mutations(rows)
 
         with timeit() as delta:
             with futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
