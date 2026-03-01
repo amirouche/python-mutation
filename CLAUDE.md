@@ -64,7 +64,7 @@ Everything lives in a single file: **`mutation.py`** (1052 lines). It functions 
 Mutations are implemented via a `Mutation` metaclass that auto-registers all subclasses. Each mutation class implements two key methods:
 
 - **`predicate(node)`** — returns `True` if the AST node matches this mutation type (e.g., `isinstance(node, ast.Constant)` for numeric mutations)
-- **`mutate(node, index, tree)`** — generator that yields `(mutated_tree_copy, new_node)` tuples, one per valid mutation of the node
+- **`mutate(node, index, tree)`** — generator that yields `(mutated_tree_copy, new_node)` tuples, one per valid mutation of the node. **Must call `copy_tree_at(tree, index)` first** to get a deep copy of the AST; mutating `tree` directly would side-effect other mutations sharing the same tree object.
 
 The metaclass (`Mutation.__init__`) instantiates each subclass and stores it in `Mutation.ALL` (a set of all mutation instances). Optional `deadcode_detection = True` flags a mutation as part of dead-code detection (e.g., `StatementDrop`, `DefinitionDrop`), limiting it to the `--only-deadcode-detection` workflow.
 
@@ -74,13 +74,17 @@ For each covered AST node in `iter_deltas`, the pipeline calls `predicate()` on 
 
 1. **`check_tests`** — runs the baseline test suite to confirm it passes; detects xdist parallel support
 2. **`coverage_read`** — parses `.coverage` data to determine which lines are actually executed
-3. **`iter_deltas`** — walks the AST via `parso`, applies `mutate()` per node, filters to covered lines via `interesting()`, yields unified diffs
+3. **`iter_deltas`** — walks the AST via `ast.parse`, applies `mutate()` per node, filters to covered lines via `interesting()`, yields unified diffs
 4. **`mutation_create`** — parallelizes delta generation using a process pool; stores mutations in the SQLite database compressed with zstandard
 5. **`mutation_pass`** — runs each mutation through the test suite via a thread pool; records survivors (undetected mutations)
 
 ### Storage
 
-Mutations are persisted in `.mutation.db` (a SQLite database). Keys use `lexode` encoding; values are `zstandard`-compressed unified diffs indexed by ULID.
+Mutations are persisted in `.mutation.db` (a SQLite database via `sqlite3` from the stdlib) with three tables:
+
+- **`config`** — key/value pairs for run metadata (e.g. sampling config)
+- **`mutations`** — each row holds a ULID (`uid`), source file path, and `zstandard`-compressed unified diff
+- **`results`** — maps `uid` to a status integer (pass/fail/skip) after test execution
 
 ### Pytest-Only
 
