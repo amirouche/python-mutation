@@ -1035,6 +1035,8 @@ class MutateFString(metaclass=Mutation):
 class MutateGlobal(metaclass=Mutation):
     """Remove a global or nonlocal declaration entirely, causing assignments to bind a local variable instead, verifying that the scoping is exercised by tests."""
 
+    deadcode_detection = True
+
     def predicate(self, node):
         return isinstance(node, (ast.Global, ast.Nonlocal))
 
