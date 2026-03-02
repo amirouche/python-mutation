@@ -105,9 +105,4 @@ Mutations are persisted in `.mutation.db` (a SQLite database via `sqlite3` from 
 | `requirements.txt` | pip-compiled locked dependencies (auto-generated, do not edit) |
 | `requirements.dev.txt` | Dev-only tools: black, isort, bandit, tbvaccine |
 
-## Known Issues / TODOs
 
-- Mutations that produce syntax errors are not filtered out (requires Python 3.9+ `ast.unparse`)
-- Removing docstrings can trigger errors in `mutation play`
-- PyPy support is untested (sqlite3 is in the stdlib but other dependencies may not support PyPy)
-- `rc.sh` contains an unresolved git merge conflict
