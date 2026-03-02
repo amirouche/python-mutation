@@ -2,7 +2,7 @@
 """Mutation.
 
 Usage:
-  mutation play [--verbose] [--exclude=<globs>] [--only-deadcode-detection] [--include=<globs>] [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- TEST-COMMAND ...]
+  mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
   mutation replay [--verbose] [--max-workers=<n>]
   mutation list
   mutation show MUTATION
@@ -11,21 +11,37 @@ Usage:
   mutation --version
 
 Options:
-  --verbose     Show more information.
-  -h --help     Show this screen.
-  --version     Show version.
+  --include=<glob>           Glob pattern for files to mutate, matched against relative paths.
+                             Repeat the flag for multiple patterns [default: *.py]
+  --exclude=<glob>           Glob pattern for files to skip. Repeat the flag for multiple
+                             patterns [default: *test*]
+  --sampling=<s>             Limit mutations tested: N tests the first N, N% tests a random
+                             N% (e.g. "--sampling=100" or "--sampling=10%") (default: all)
+  --randomly-seed=<n>        Integer seed controlling test order (pytest-randomly) and random
+                             number mutations; also makes --sampling=N% reproducible
+                             (default: current Unix timestamp)
+  --only-deadcode-detection  Only apply dead-code detection mutations (StatementDrop,
+                             DefinitionDrop).
+  --max-workers=<n>          Number of parallel workers (default: cpu_count - 1)
+  --verbose                  Show more information.
+  -h --help                  Show this screen.
+  --version                  Show version.
 """
+import ast
 import asyncio
 import fnmatch
 import functools
 import itertools
+import json
 import os
 import random
 import re
 import shlex
+import sqlite3
+import subprocess
 import sys
 import time
-from ast import Constant
+import types
 from concurrent import futures
 from contextlib import contextmanager
 from copy import deepcopy
@@ -33,19 +49,15 @@ from datetime import timedelta
 from difflib import unified_diff
 from uuid import UUID
 
-import lexode
-import parso
 import pygments
 import pygments.formatters
 import pygments.lexers
 import zstandard as zstd
 from aiostream import pipe, stream
-from astunparse import unparse
 from coverage import Coverage
 from docopt import docopt
 from humanize import precisedelta
 from loguru import logger as log
-from lsm import LSM
 from pathlib import Path
 from termcolor import colored
 from tqdm import tqdm
@@ -148,30 +160,123 @@ def glob2predicate(patterns):
     return predicate
 
 
-def node_iter(node, level=1):
-    yield node
-    for child in node.children:
-        if not getattr(child, "children", False):
-            yield child
-            continue
-
-        yield from node_iter(child, level + 1)
+def ast_walk(tree):
+    """Depth-first traversal of an AST, yielding every node."""
+    yield tree
+    for child in ast.iter_child_nodes(tree):
+        yield from ast_walk(child)
 
 
-def node_copy_tree(node, index):
-    root = node.get_root_node()
-    root = deepcopy(root)
-    iterator = itertools.dropwhile(
-        lambda x: x[0] != index, zip(itertools.count(0), node_iter(root))
-    )
-    index, node = next(iterator)
-    return root, node
+def copy_tree_at(tree, index):
+    """Deep-copy *tree* and return (copy, node_at_index_in_copy)."""
+    tree_copy = deepcopy(tree)
+    return tree_copy, list(ast_walk(tree_copy))[index]
+
+
+def get_parent_field_idx(tree, node):
+    """Return (parent, field_name, list_index_or_None) for *node* in *tree*."""
+    for parent in ast_walk(tree):
+        for field, value in ast.iter_fields(parent):
+            if isinstance(value, list):
+                for i, child in enumerate(value):
+                    if child is node:
+                        return parent, field, i
+            elif value is node:
+                return parent, field, None
+    return None, None, None
 
 
 @contextmanager
 def timeit():
     start = time.perf_counter()
     yield lambda: time.perf_counter() - start
+
+
+class Database:
+    def __init__(self, path, timeout=300):
+        self._conn = sqlite3.connect(str(path), check_same_thread=False, timeout=timeout)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS mutations "
+            "(uid BLOB PRIMARY KEY, path TEXT, diff BLOB)"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS results "
+            "(uid BLOB PRIMARY KEY, status INTEGER)"
+        )
+        self._conn.commit()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self._conn.close()
+
+    # --- config ---
+    def get_config(self, key):
+        row = self._conn.execute(
+            "SELECT value FROM config WHERE key = ?", (key,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(key)
+        return json.loads(row[0])
+
+    def set_config(self, key, value):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+            (key, json.dumps(value)),
+        )
+        self._conn.commit()
+
+    # --- mutations ---
+    def store_mutations(self, rows):
+        """Insert multiple (uid, path, diff) rows in a single transaction."""
+        self._conn.executemany(
+            "INSERT OR REPLACE INTO mutations (uid, path, diff) VALUES (?, ?, ?)",
+            rows,
+        )
+        self._conn.commit()
+
+    def get_mutation(self, uid):
+        row = self._conn.execute(
+            "SELECT path, diff FROM mutations WHERE uid = ?", (uid,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(uid)
+        return row[0], row[1]  # path: str, diff: bytes
+
+    def list_mutations(self):
+        return self._conn.execute(
+            "SELECT uid FROM mutations ORDER BY uid"
+        ).fetchall()
+
+    # --- results ---
+    def set_result(self, uid, status):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO results (uid, status) VALUES (?, ?)",
+            (uid, status),
+        )
+        self._conn.commit()
+
+    def del_result(self, uid):
+        self._conn.execute("DELETE FROM results WHERE uid = ?", (uid,))
+        self._conn.commit()
+
+    def list_results(self, status=None):
+        if status is not None:
+            return self._conn.execute(
+                "SELECT uid, status FROM results WHERE status = ? ORDER BY uid",
+                (status,),
+            ).fetchall()
+        return self._conn.execute(
+            "SELECT uid, status FROM results ORDER BY uid"
+        ).fetchall()
+
+    def count_results(self):
+        return self._conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
 
 
 class Mutation(type):
@@ -189,38 +294,45 @@ class Mutation(type):
 
 
 class StatementDrop(metaclass=Mutation):
+    """Replace a statement with pass, verifying that no covered statement is inert dead code."""
 
     deadcode_detection = True
-    NEWLINE = "a = 42\n"
 
     def predicate(self, node):
-        return "stmt" in node.type and node.type != "expr_stmt"
+        return isinstance(node, ast.stmt) and not isinstance(
+            node, (ast.Expr, ast.Pass, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        )
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        index = new.parent.children.index(new)
-        passi = parso.parse("pass").children[0]
-        passi.prefix = new.get_first_leaf().prefix
-        new.parent.children[index] = passi
-        newline = parso.parse(type(self).NEWLINE).children[0].children[1]
-        new.parent.children.insert(index + 1, newline)
-        yield root, new
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        replacement = ast.Pass(lineno=node_copy.lineno, col_offset=node_copy.col_offset)
+        getattr(parent, field)[idx] = replacement
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
 
 
 class DefinitionDrop(metaclass=Mutation):
+    """Remove a function or class definition entirely (only when others remain in the same body), surfacing unreferenced definitions."""
 
     deadcode_detection = True
 
     def predicate(self, node):
-        # There is also node.type = 'lambdadef' but lambadef are
-        # always part of a assignation statement. So, that case is
-        # handled in StatementDrop.
-        return node.type in ("classdef", "funcdef")
+        return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        new.parent.children.remove(new)
-        yield root, new
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        body = getattr(parent, field)
+        if len(body) <= 1:
+            return
+        body.pop(idx)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
 
 
 def chunks(iterable, n):
@@ -231,22 +343,24 @@ def chunks(iterable, n):
 
 
 class MutateNumber(metaclass=Mutation):
+    """Replace an integer or float literal with a random value in the same bit-range, verifying that the exact numeric value is tested."""
 
     COUNT = 5
 
     def predicate(self, node):
-        return node.type == "number"
+        return (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, (int, float))
+            and not isinstance(node.value, bool)
+        )
 
-    def mutate(self, node, index):
-        value = eval(node.value)
+    def mutate(self, node, index, tree):
+        value = node.value
 
         if isinstance(value, int):
-
             def randomize(x):
                 return random.randint(0, x)
-
         else:
-
             def randomize(x):
                 return random.random() * x
 
@@ -257,101 +371,686 @@ class MutateNumber(metaclass=Mutation):
         count = 0
         while count != self.COUNT:
             count += 1
-            root, new = node_copy_tree(node, index)
-            new.value = str(randomize(2 ** size))
-            if new.value == node.value:
+            new_value = randomize(2 ** size)
+            if new_value == value:
                 continue
-            yield root, new
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.value = new_value
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
 
 
 class MutateString(metaclass=Mutation):
-    def predicate(self, node):
-        # str or bytes.
-        return node.type == "string"
+    """Prepend a fixed prefix to a string or bytes literal, verifying that callers check the actual content."""
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        value = eval(new.value)
-        if isinstance(value, bytes):
-            value = b"coffeebad" + value
+    def predicate(self, node):
+        return isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes))
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        if isinstance(node_copy.value, bytes):
+            node_copy.value = b"coffeebad" + node_copy.value
         else:
-            value = "mutated string " + value
-        value = Constant(value=value, kind="")
-        value = unparse(value).strip()
-        new.value = value
-        yield root, new
+            node_copy.value = "mutated string " + node_copy.value
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
 
 
 class MutateKeyword(metaclass=Mutation):
+    """Rotate flow keywords (break/continue/pass), swap boolean constants (True/False/None), and flip boolean operators (and/or)."""
 
-    KEYWORDS = set(["continue", "break", "pass"])
-    SINGLETON = set(["True", "False", "None"])
-    # Support xor operator ^
-    BOOLEAN = set(["and", "or"])
-
-    TARGETS = KEYWORDS | SINGLETON | BOOLEAN
+    FLOW_STMTS = (ast.Continue, ast.Break, ast.Pass)
+    BOOL_OPS = (ast.And, ast.Or)
 
     def predicate(self, node):
-        return node.type == "keyword" and node.value in type(self).TARGETS
+        if isinstance(node, self.FLOW_STMTS):
+            return True
+        if isinstance(node, ast.Constant) and (
+            node.value is True or node.value is False or node.value is None
+        ):
+            return True
+        if isinstance(node, ast.BoolOp):
+            return True
+        return False
 
-    def mutate(self, node, index):
-        value = node.value
-        for targets in [self.KEYWORDS, self.SINGLETON, self.BOOLEAN]:
-            if value in targets:
-                break
-        else:
-            raise NotImplementedError
+    def mutate(self, node, index, tree):
+        if isinstance(node, self.FLOW_STMTS):
+            for new_cls in self.FLOW_STMTS:
+                if isinstance(node, new_cls):
+                    continue
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+                if parent is None or idx is None:
+                    continue
+                getattr(parent, field)[idx] = new_cls(
+                    lineno=node_copy.lineno, col_offset=node_copy.col_offset
+                )
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
 
-        for target in targets:
-            if target == value:
-                continue
-            root, new = node_copy_tree(node, index)
-            new.value = target
-            yield root, new
+        elif isinstance(node, ast.Constant):
+            if node.value is True:
+                swaps = [False, None]
+            elif node.value is False:
+                swaps = [True, None]
+            else:
+                swaps = [True, False]
+            for new_value in swaps:
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.value = new_value
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+        elif isinstance(node, ast.BoolOp):
+            for new_op_cls in self.BOOL_OPS:
+                if isinstance(node.op, new_op_cls):
+                    continue
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.op = new_op_cls()
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
 
 
 class Comparison(metaclass=Mutation):
-    def predicate(self, node):
-        return node == "comparison"
+    """Negate a comparison expression by wrapping it with not (...), verifying that the direction of every comparison is tested."""
 
-    def mutate(self, node, index):
-        root, new = node_copy_tree(node, index)
-        not_test = parso.parse("not ({})".format(new.get_code()))
-        index = new.parent.children.index(new)
-        new.parent.children[index] = not_test
-        return root, new
+    def predicate(self, node):
+        return isinstance(node, ast.Compare)
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None:
+            return
+        not_node = ast.UnaryOp(
+            op=ast.Not(),
+            operand=node_copy,
+            lineno=node_copy.lineno,
+            col_offset=node_copy.col_offset,
+        )
+        if idx is not None:
+            getattr(parent, field)[idx] = not_node
+        else:
+            setattr(parent, field, not_node)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, not_node
 
 
 class MutateOperator(metaclass=Mutation):
+    """Replace an arithmetic, bitwise, shift, or comparison operator with another in the same group, verifying the exact operator matters."""
 
-    BINARY = ["+", "-", "%", "|", "&", "//", "/", "*", "^", "**", "@"]
-    BITWISE = ["<<", ">>"]
-    COMPARISON = ["<", "<=", "==", "!=", ">=", ">"]
-    ASSIGNEMENT = ["="] + [x + "=" for x in BINARY + BITWISE]
-
-    # TODO support OPERATORS_CONTAINS = ["in", "not in"]
-
-    OPERATORS = [
-        BINARY,
-        BITWISE,
-        BITWISE,
-        COMPARISON,
-        ASSIGNEMENT,
+    BINARY_OPS = [
+        ast.Add, ast.Sub, ast.Mod, ast.BitOr, ast.BitAnd,
+        ast.FloorDiv, ast.Div, ast.Mult, ast.BitXor, ast.Pow, ast.MatMult,
     ]
+    SHIFT_OPS = [ast.LShift, ast.RShift]
+    CMP_OPS = [ast.Lt, ast.LtE, ast.Eq, ast.NotEq, ast.GtE, ast.Gt]
+
+    BINOP_GROUPS = [BINARY_OPS, SHIFT_OPS]
 
     def predicate(self, node):
-        return node.type == "operator"
+        return isinstance(node, (ast.BinOp, ast.AugAssign, ast.Compare))
 
-    def mutate(self, node, index):
-        for operators in type(self).OPERATORS:
-            if node.value not in operators:
-                continue
-            for new_operator in operators:
-                if node.value == new_operator:
+    def mutate(self, node, index, tree):
+        if isinstance(node, (ast.BinOp, ast.AugAssign)):
+            for op_group in self.BINOP_GROUPS:
+                if type(node.op) not in op_group:
                     continue
-                root, new = node_copy_tree(node, index)
-                new.value = new_operator
-                yield root, new
+                for new_op_cls in op_group:
+                    if new_op_cls is type(node.op):
+                        continue
+                    tree_copy, node_copy = copy_tree_at(tree, index)
+                    node_copy.op = new_op_cls()
+                    ast.fix_missing_locations(tree_copy)
+                    yield tree_copy, node_copy
+
+        elif isinstance(node, ast.Compare):
+            for i, op in enumerate(node.ops):
+                if type(op) not in self.CMP_OPS:
+                    continue
+                for new_op_cls in self.CMP_OPS:
+                    if new_op_cls is type(op):
+                        continue
+                    tree_copy, node_copy = copy_tree_at(tree, index)
+                    node_copy.ops[i] = new_op_cls()
+                    ast.fix_missing_locations(tree_copy)
+                    yield tree_copy, node_copy
+
+
+if hasattr(ast, "Match"):
+
+    class MutateMatchCase(metaclass=Mutation):
+        """Remove one case branch at a time from a match statement (Python 3.10+), verifying that each branch is exercised by the test suite."""
+
+        def predicate(self, node):
+            return isinstance(node, ast.Match) and len(node.cases) > 1
+
+        def mutate(self, node, index, tree):
+            for i in range(len(node.cases)):
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.cases.pop(i)
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+
+_STRING_METHOD_SWAPS = {
+    "lower": ["upper"], "upper": ["lower"],
+    "lstrip": ["rstrip", "removeprefix"], "rstrip": ["lstrip", "removesuffix"],
+    "find": ["rfind"], "rfind": ["find"],
+    "ljust": ["rjust"], "rjust": ["ljust"],
+    "removeprefix": ["removesuffix"], "removesuffix": ["removeprefix"],
+    "partition": ["rpartition"], "rpartition": ["partition"],
+    "split": ["rsplit"], "rsplit": ["split"],
+}
+
+
+class MutateStringMethod(metaclass=Mutation):
+    """Swap directionally symmetric string methods (lower↔upper, lstrip↔rstrip, lstrip↔removeprefix, rstrip↔removesuffix, find↔rfind, ljust↔rjust, removeprefix↔removesuffix, partition↔rpartition, split↔rsplit), verifying that the direction matters."""
+
+    def predicate(self, node):
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _STRING_METHOD_SWAPS
+        )
+
+    def mutate(self, node, index, tree):
+        for target_attr in _STRING_METHOD_SWAPS[node.func.attr]:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.func.attr = target_attr
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateCallArgs(metaclass=Mutation):
+    """Replace each positional call argument with None, and drop one argument at a time from multi-argument calls, verifying that every argument is actually used."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Call) and len(node.args) > 0
+
+    def mutate(self, node, index, tree):
+        for i, arg in enumerate(node.args):
+            if isinstance(arg, ast.Constant) and arg.value is None:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.args[i] = ast.Constant(
+                value=None, lineno=arg.lineno, col_offset=arg.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+        if len(node.args) > 1:
+            for i in range(len(node.args)):
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.args.pop(i)
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+
+class ForceConditional(metaclass=Mutation):
+    """Force the test of an if/while/assert/ternary to always be True or always False, verifying that both branches are meaningfully exercised."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp))
+
+    def mutate(self, node, index, tree):
+        for value in (True, False):
+            if isinstance(node.test, ast.Constant) and node.test.value is value:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.test = ast.Constant(
+                value=value, lineno=node_copy.test.lineno, col_offset=node_copy.test.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateExceptionHandler(metaclass=Mutation):
+    """Replace the specific exception type in an except clause with the generic Exception, verifying that the handler is tested for the right error kind."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.ExceptHandler) and node.type is not None
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.type = ast.Name(
+            id="Exception",
+            ctx=ast.Load(),
+            lineno=node_copy.type.lineno,
+            col_offset=node_copy.type.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class ZeroIteration(metaclass=Mutation):
+    """Replace a for-loop's iterable with an empty list, forcing the body to never execute, verifying that callers handle empty-collection cases."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.For, ast.AsyncFor))
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.iter = ast.List(
+            elts=[],
+            ctx=ast.Load(),
+            lineno=node_copy.iter.lineno,
+            col_offset=node_copy.iter.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class RemoveDecorator(metaclass=Mutation):
+    """Remove one decorator at a time from a decorated function or class, verifying that each decorator's effect is covered by tests."""
+
+    def predicate(self, node):
+        return (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and len(node.decorator_list) > 0
+        )
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.decorator_list)):
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.decorator_list.pop(i)
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class NegateCondition(metaclass=Mutation):
+    """Wrap a bare (non-comparison) condition with not, inserting the logical inverse of the test, verifying that the truthiness of the value actually matters."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp)) and not isinstance(
+            node.test, ast.Compare
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        test = node_copy.test
+        node_copy.test = ast.UnaryOp(
+            op=ast.Not(),
+            operand=test,
+            lineno=test.lineno,
+            col_offset=test.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class MutateReturn(metaclass=Mutation):
+    """Replace a return value with a type-appropriate default (None, 0, False, or ""), verifying that callers check what the function returns."""
+
+    DEFAULTS = [None, 0, False, ""]
+
+    def predicate(self, node):
+        return isinstance(node, ast.Return) and node.value is not None
+
+    def mutate(self, node, index, tree):
+        for default in self.DEFAULTS:
+            if isinstance(node.value, ast.Constant) and node.value.value is default:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.value = ast.Constant(
+                value=default, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateLambda(metaclass=Mutation):
+    """Replace the body of a lambda with None (or 0 when the body is already None), verifying that the lambda's computation is actually used."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Lambda)
+
+    def mutate(self, node, index, tree):
+        new_value = 0 if (isinstance(node.body, ast.Constant) and node.body.value is None) else None
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.body = ast.Constant(
+            value=new_value, lineno=node_copy.body.lineno, col_offset=node_copy.body.col_offset
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class MutateAssignment(metaclass=Mutation):
+    """Replace the right-hand side of a plain assignment with None, verifying that the assigned value is not silently ignored."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Assign) and not (
+            isinstance(node.value, ast.Constant) and node.value.value is None
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.value = ast.Constant(
+            value=None, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class AugAssignToAssign(metaclass=Mutation):
+    """Convert an augmented assignment (x += v) to a plain assignment (x = v), dropping the accumulation, verifying that the update operator is tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.AugAssign)
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        assign = ast.Assign(
+            targets=[node_copy.target],
+            value=node_copy.value,
+            lineno=node_copy.lineno,
+            col_offset=node_copy.col_offset,
+        )
+        getattr(parent, field)[idx] = assign
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class RemoveUnaryOp(metaclass=Mutation):
+    """Strip a unary operator (not, -, ~) and leave only the operand, verifying that the operator's effect is covered by tests."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.UnaryOp) and isinstance(
+            node.op, (ast.Not, ast.USub, ast.Invert)
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None:
+            return
+        operand = node_copy.operand
+        if idx is not None:
+            getattr(parent, field)[idx] = operand
+        else:
+            setattr(parent, field, operand)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class MutateIdentity(metaclass=Mutation):
+    """Swap is ↔ is not in identity comparisons, verifying that the expected identity relationship is directly tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Compare) and any(
+            isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops
+        )
+
+    def mutate(self, node, index, tree):
+        for i, op in enumerate(node.ops):
+            if not isinstance(op, (ast.Is, ast.IsNot)):
+                continue
+            new_op = ast.IsNot() if isinstance(op, ast.Is) else ast.Is()
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.ops[i] = new_op
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateContainment(metaclass=Mutation):
+    """Swap in ↔ not in in membership tests, verifying that the expected membership relationship is directly tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Compare) and any(
+            isinstance(op, (ast.In, ast.NotIn)) for op in node.ops
+        )
+
+    def mutate(self, node, index, tree):
+        for i, op in enumerate(node.ops):
+            if not isinstance(op, (ast.In, ast.NotIn)):
+                continue
+            new_op = ast.NotIn() if isinstance(op, ast.In) else ast.In()
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.ops[i] = new_op
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class BreakToReturn(metaclass=Mutation):
+    """Replace break with return, exiting the enclosing function instead of just the loop, verifying that the loop's exit path is tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Break)
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        getattr(parent, field)[idx] = ast.Return(
+            value=None, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class SwapArguments(metaclass=Mutation):
+    """Swap each pair of positional call arguments, verifying that argument order is tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Call) and len(node.args) >= 2
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.args)):
+            for j in range(i + 1, len(node.args)):
+                tree_copy, node_copy = copy_tree_at(tree, index)
+                node_copy.args[i], node_copy.args[j] = node_copy.args[j], node_copy.args[i]
+                ast.fix_missing_locations(tree_copy)
+                yield tree_copy, node_copy
+
+
+class MutateSlice(metaclass=Mutation):
+    """Drop the lower or upper bound of a slice (a[i:j] → a[:j] or a[i:]) and negate the step (a[::2] → a[::-2]), verifying that slice boundary conditions and direction are tested."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.Slice) and (
+            node.lower is not None or node.upper is not None or node.step is not None
+        )
+
+    def mutate(self, node, index, tree):
+        if node.lower is not None:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.lower = None
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+        if node.upper is not None:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.upper = None
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+        if node.step is not None:
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            step = node_copy.step
+            if isinstance(step, ast.UnaryOp) and isinstance(step.op, ast.USub):
+                node_copy.step = step.operand
+            else:
+                node_copy.step = ast.UnaryOp(
+                    op=ast.USub(),
+                    operand=step,
+                    lineno=step.lineno,
+                    col_offset=step.col_offset,
+                )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateYield(metaclass=Mutation):
+    """Replace the value of a yield expression with None, verifying that the yielded value is actually used by callers."""
+
+    def predicate(self, node):
+        return (
+            isinstance(node, ast.Yield)
+            and node.value is not None
+            and not (isinstance(node.value, ast.Constant) and node.value.value is None)
+        )
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.value = ast.Constant(
+            value=None, lineno=node_copy.lineno, col_offset=node_copy.col_offset
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class MutateDefaultArgument(metaclass=Mutation):
+    """Remove leading default argument values one at a time, making parameters required, verifying that callers always supply them explicitly."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and (
+            len(node.args.defaults) > 0
+            or any(d is not None for d in node.args.kw_defaults)
+        )
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.args.defaults)):
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.args.defaults = node_copy.args.defaults[i + 1:]
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+        for i, default in enumerate(node.args.kw_defaults):
+            if default is None:
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.args.kw_defaults[i] = None
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateIterator(metaclass=Mutation):
+    """Wrap a for-loop's iterable in reversed() or random.shuffle(), verifying that iteration order assumptions are tested."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.For, ast.AsyncFor)) and not (
+            isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Name)
+            and node.iter.func.id == "reversed"
+        )
+
+    def mutate(self, node, index, tree):
+        # Mutation 1: reversed(iterable)
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        node_copy.iter = ast.Call(
+            func=ast.Name(id="reversed", ctx=ast.Load()),
+            args=[node_copy.iter],
+            keywords=[],
+            lineno=node_copy.iter.lineno,
+            col_offset=node_copy.iter.col_offset,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+        # Mutation 2: (__import__('random').shuffle(_s := list(iterable)) or _s)
+        # Shuffles the iterable in-place without adding an import statement.
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        lineno = node_copy.iter.lineno
+        col = node_copy.iter.col_offset
+        seq_name = ast.Name(id="_mutation_seq_", ctx=ast.Store(), lineno=lineno, col_offset=col)
+        list_call = ast.Call(
+            func=ast.Name(id="list", ctx=ast.Load(), lineno=lineno, col_offset=col),
+            args=[node_copy.iter],
+            keywords=[],
+            lineno=lineno,
+            col_offset=col,
+        )
+        walrus = ast.NamedExpr(target=seq_name, value=list_call, lineno=lineno, col_offset=col)
+        shuffle_call = ast.Call(
+            func=ast.Attribute(
+                value=ast.Call(
+                    func=ast.Name(id="__import__", ctx=ast.Load(), lineno=lineno, col_offset=col),
+                    args=[ast.Constant(value="random", lineno=lineno, col_offset=col)],
+                    keywords=[],
+                    lineno=lineno,
+                    col_offset=col,
+                ),
+                attr="shuffle",
+                ctx=ast.Load(),
+                lineno=lineno,
+                col_offset=col,
+            ),
+            args=[walrus],
+            keywords=[],
+            lineno=lineno,
+            col_offset=col,
+        )
+        seq_load = ast.Name(id="_mutation_seq_", ctx=ast.Load(), lineno=lineno, col_offset=col)
+        node_copy.iter = ast.BoolOp(
+            op=ast.Or(),
+            values=[shuffle_call, seq_load],
+            lineno=lineno,
+            col_offset=col,
+        )
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
+
+
+class MutateContextManager(metaclass=Mutation):
+    """Strip context managers from a with statement one at a time, keeping the body, verifying that each manager's effect is tested."""
+
+    def predicate(self, node):
+        return isinstance(node, (ast.With, ast.AsyncWith))
+
+    def mutate(self, node, index, tree):
+        for i in range(len(node.items)):
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            if len(node_copy.items) == 1:
+                parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+                if parent is None or idx is None:
+                    continue
+                getattr(parent, field)[idx:idx + 1] = node_copy.body
+            else:
+                node_copy.items.pop(i)
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateFString(metaclass=Mutation):
+    """Replace each interpolated expression in an f-string with an empty string, verifying that callers check the formatted content rather than just the surrounding template."""
+
+    def predicate(self, node):
+        return isinstance(node, ast.JoinedStr) and any(
+            isinstance(v, ast.FormattedValue) for v in node.values
+        )
+
+    def mutate(self, node, index, tree):
+        for i, value in enumerate(node.values):
+            if not isinstance(value, ast.FormattedValue):
+                continue
+            tree_copy, node_copy = copy_tree_at(tree, index)
+            node_copy.values[i] = ast.Constant(
+                value="", lineno=node_copy.lineno, col_offset=node_copy.col_offset
+            )
+            ast.fix_missing_locations(tree_copy)
+            yield tree_copy, node_copy
+
+
+class MutateGlobal(metaclass=Mutation):
+    """Remove a global or nonlocal declaration entirely, causing assignments to bind a local variable instead, verifying that the scoping is exercised by tests."""
+
+    deadcode_detection = True
+
+    def predicate(self, node):
+        return isinstance(node, (ast.Global, ast.Nonlocal))
+
+    def mutate(self, node, index, tree):
+        tree_copy, node_copy = copy_tree_at(tree, index)
+        parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
+        if parent is None or idx is None:
+            return
+        body = getattr(parent, field)
+        if len(body) <= 1:
+            return
+        body.pop(idx)
+        ast.fix_missing_locations(tree_copy)
+        yield tree_copy, node_copy
 
 
 def diff(source, target, filename=""):
@@ -362,34 +1061,42 @@ def diff(source, target, filename=""):
     return out
 
 
-def mutate(node, index, mutations):
+def mutate(node, index, tree, mutations):
     for mutation in mutations:
         if not mutation.predicate(node):
             continue
-        yield from mutation.mutate(node, index)
+        yield from mutation.mutate(node, index, tree)
 
 
-def interesting(new_node, coverage):
-    if getattr(new_node, "line", False):
-        return new_node.line in coverage
-    return new_node.get_first_leaf().line in coverage
+def interesting(node, coverage):
+    return getattr(node, "lineno", None) in coverage
 
 
 def iter_deltas(source, path, coverage, mutations):
-    ast = parso.parse(source)
+    tree = ast.parse(source)
+    canonical = ast.unparse(tree)
     ignored = 0
-    for (index, (index, node)) in enumerate(zip(itertools.count(0), node_iter(ast))):
-        for root, new_node in mutate(node, index, mutations):
+    invalid = 0
+    for index, node in enumerate(ast_walk(tree)):
+        for tree_copy, new_node in mutate(node, index, tree, mutations):
             if not interesting(new_node, coverage):
                 ignored += 1
                 continue
-            target = root.get_code()
-            delta = diff(source, target, path)
+            target = ast.unparse(tree_copy)
+            try:
+                ast.parse(target)
+            except SyntaxError:
+                invalid += 1
+                continue
+            delta = diff(canonical, target, path)
             yield delta
     if ignored > 1:
         msg = "Ignored {} mutations from file at {}"
         msg += " because there is no associated coverage."
         log.trace(msg, ignored, path)
+    if invalid > 0:
+        msg = "Skipped {} invalid (syntax error) mutations from {}"
+        log.trace(msg, invalid, path)
 
 
 async def pool_for_each_par_map(loop, pool, f, p, iterator):
@@ -438,19 +1145,16 @@ def mutation_create(item):
 
 
 def install_module_loader(uid):
-    db = LSM(".mutation.okvslite")
-
     mutation_show(uid.hex)
 
-    path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
+    with Database(".mutation.db") as db:
+        path, diff = db.get_mutation(uid.bytes)
     diff = zstd.decompress(diff).decode("utf8")
 
     with open(path) as f:
         source = f.read()
 
-    patched = patch(diff, source)
-
-    import imp
+    patched = patch(diff, ast.unparse(ast.parse(source)))
 
     components = path[:-3].split("/")
 
@@ -469,11 +1173,10 @@ def install_module_loader(uid):
     if module_path is None:
         raise Exception("sys.path oops!")
 
-    patched_module = imp.new_module(module_path)
+    patched_module = types.ModuleType(module_path)
     try:
         exec(patched, patched_module.__dict__)
     except Exception:
-        # TODO: syntaxerror, do not produce those mutations
         exec("", patched_module.__dict__)
 
     sys.modules[module_path] = patched_module
@@ -507,13 +1210,13 @@ def mutation_pass(args):  # TODO: rename
     if out == 0:
         msg = "no error with mutation: {} ({})"
         log.trace(msg, " ".join(command), out)
-        with database_open(".") as db:
-            db[lexode.pack([2, uid])] = b"\x00"
+        with database_open(".", timeout=timeout) as db:
+            db.set_result(uid, 0)
         return False
     else:
         # TODO: pass root path...
-        with database_open(".") as db:
-            del db[lexode.pack([2, uid])]
+        with database_open(".", timeout=timeout) as db:
+            db.del_result(uid)
         return True
 
 
@@ -537,41 +1240,45 @@ def coverage_read(root):
     return out
 
 
-def database_open(root, recreate=False):
+def database_open(root, recreate=False, timeout=300):
     root = root if isinstance(root, Path) else Path(root)
-    db = root / ".mutation.okvslite"
+    db = root / ".mutation.db"
     if recreate and db.exists():
         log.trace("Deleting existing database...")
-        for file in root.glob(".mutation.okvslite*"):
+        for file in root.glob(".mutation.db*"):
             file.unlink()
 
     if not recreate and not db.exists():
         log.error("No database, can not proceed!")
         sys.exit(1)
 
-    db = LSM(str(db))
-
-    return db
+    return Database(str(db), timeout=timeout)
 
 
-def run(command, timeout=None, silent=True):
+def run(command, timeout=None, silent=True, verbose=False):
     if timeout and timeout < 60:
         timeout = 60
 
-    if timeout:
-        command.insert(0, "timeout {}".format(timeout))
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    devnull = subprocess.DEVNULL if (silent and not verbose) else None
 
-    command.insert(0, "PYTHONDONTWRITEBYTECODE=1")
-
-    if silent:
-        command.append("> /dev/null 2>&1")
-
-    return os.system(" ".join(command))
+    try:
+        result = subprocess.run(
+            command,
+            env=env,
+            timeout=timeout,
+            stdout=devnull,
+            stderr=devnull,
+        )
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        return 1
 
 
 def sampling_setup(sampling, total):
+
     if sampling is None:
-        return lambda x: x, total
+        sampling = "100%"
 
     if sampling.endswith("%"):
         # randomly choose percent mutations
@@ -611,13 +1318,12 @@ def sampling_setup(sampling, total):
 # TODO: the `command` is a hack, maybe there is a way to avoid the
 # following code: `if command is not None.
 def check_tests(root, seed, arguments, command=None):
-    max_workers = arguments["--max-workers"] or (os.cpu_count() - 1) or 1
-    max_workers = int(max_workers)
+    max_workers = int(arguments["--max-workers"] or (os.cpu_count() - 1) or 1)
 
     log.info("Let's check that the tests are green...")
 
-    if arguments["<file-or-directory>"] and arguments["TEST-COMMAND"]:
-        log.error("<file-or-directory> and TEST-COMMAND are exclusive!")
+    if arguments["<file-or-directory>"] and arguments["PYTEST-COMMAND"]:
+        log.error("<file-or-directory> and PYTEST-COMMAND are exclusive!")
         sys.exit(1)
 
     if command is not None:
@@ -631,8 +1337,8 @@ def check_tests(root, seed, arguments, command=None):
                 ]
             )
     else:
-        if arguments["TEST-COMMAND"]:
-            command = list(arguments["TEST-COMMAND"])
+        if arguments["PYTEST-COMMAND"]:
+            command = list(arguments["PYTEST-COMMAND"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -655,8 +1361,10 @@ def check_tests(root, seed, arguments, command=None):
             ]
         )
 
+    verbose = arguments.get("--verbose", False)
+
     with timeit() as alpha:
-        out = run(command)
+        out = run(command, verbose=verbose)
 
     if out == 0:
         log.info("Tests are green 💚")
@@ -667,8 +1375,8 @@ def check_tests(root, seed, arguments, command=None):
         log.warning("I tried the following command: `{}`", " ".join(command))
 
         # Same command without parallelization
-        if arguments["TEST-COMMAND"]:
-            command = list(arguments["TEST-COMMAND"])
+        if arguments["PYTEST-COMMAND"]:
+            command = list(arguments["PYTEST-COMMAND"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -683,7 +1391,7 @@ def check_tests(root, seed, arguments, command=None):
         ]
 
         with timeit() as alpha:
-            out = run(command)
+            out = run(command, verbose=verbose)
 
         if out != 0:
             msg = "Tests are definitly red! Return code is {}!!"
@@ -692,10 +1400,10 @@ def check_tests(root, seed, arguments, command=None):
             sys.exit(2)
 
         # Otherwise, it is possible to run the tests but without
-        # parallelization.
-        msg = "Setting max_workers=1 because tests do not pass in parallel"
+        # parallelization via xdist. Mutations can still be tested
+        # concurrently (each as an independent serial pytest run).
+        msg = "Tests do not pass with xdist; each mutation will run without --numprocesses"
         log.warning(msg)
-        max_workers = 1
         alpha = alpha()
 
     msg = "Approximate time required to run the tests once: {}..."
@@ -716,12 +1424,10 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
     # Go through all files, and produce mutations, take into account
     # include pattern, and exclude patterns.  Also, exclude what has
     # no coverage.
-    include = arguments.get("--include") or "*.py"
-    include = include.split(",")
+    include = arguments.get("--include") or ["*.py"]
     include = glob2predicate(include)
 
-    exclude = arguments.get("--exclude") or "*test*"
-    exclude = exclude.split(",")
+    exclude = arguments.get("--exclude") or ["*test*"]
     exclude = glob2predicate(exclude)
 
     filepaths = root.rglob("*.py")
@@ -764,11 +1470,9 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
 
             progress.update()
             total += len(items)
-            for path, delta in items:
-                # TODO: replace ULID with a content addressable hash.
-                uid = ULID().to_uuid().bytes
-                # delta is a compressed unified diff
-                db[lexode.pack([1, uid])] = lexode.pack([path, delta])
+            # TODO: replace ULID with a content addressable hash.
+            rows = [(ULID().to_uuid().bytes, str(path), delta) for path, delta in items]
+            db.store_mutations(rows)
 
         with timeit() as delta:
             with futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
@@ -784,60 +1488,28 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
 
 async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     # prepare to run tests against mutations
-    command = list(arguments["TEST-COMMAND"] or PYTEST)
+    command = list(arguments["PYTEST-COMMAND"] or PYTEST)
     command.append("--randomly-seed={}".format(seed))
     command.extend(arguments["<file-or-directory>"])
 
     eta = humanize(alpha * total / max_workers)
-    log.info("At most, it will take {} to run the mutations", eta)
+    log.info("Worst-case estimate (if every mutation takes the full test suite): {}", eta)
 
     timeout = alpha * 2
-    uids = db[lexode.pack([1]) : lexode.pack([2])]
-    uids = ((command, lexode.unpack(key)[1], timeout) for (key, _) in uids)
+    rows = db.list_mutations()
+    uids = ((command, uid, timeout) for (uid,) in rows)
 
     # sampling
     sampling = arguments["--sampling"]
     make_sample, total = sampling_setup(sampling, total)
     uids = make_sample(uids)
 
-    step = 10
-
-    gamma = time.perf_counter()
-
-    remaining = total
-
     log.info("Testing mutations in progress...")
 
-    with tqdm(total=100) as progress:
+    with tqdm(total=total, desc="Mutations") as progress:
 
         def on_progress(_):
-            nonlocal remaining
-            nonlocal step
-            nonlocal gamma
-
-            remaining -= 1
-
-            if (remaining % step) == 0:
-
-                percent = 100 - ((remaining / total) * 100)
-                now = time.perf_counter()
-                delta = now - gamma
-                eta = (delta / step) * remaining
-
-                progress.update(int(percent))
-                progress.set_description("ETA {}".format(humanize(eta)))
-
-                msg = "Mutation tests {:.2f}% done..."
-                log.debug(msg, percent)
-                log.debug("ETA {}...", humanize(eta))
-
-                for speed in [10_000, 1_000, 100, 10, 1]:
-                    if total // speed == 0:
-                        continue
-                    step = speed
-                    break
-
-                gamma = time.perf_counter()
+            progress.update(1)
 
         with timeit() as delta:
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -845,7 +1517,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
                     loop, pool, on_progress, mutation_pass, uids
                 )
 
-        errors = len(list(db[lexode.pack([2]) : lexode.pack([3])]))
+    errors = db.count_results()
 
     if errors > 0:
         msg = "It took {} to compute {} mutation failures!"
@@ -869,8 +1541,8 @@ async def play(loop, arguments):
 
     with database_open(root, recreate=True) as db:
         # store arguments used to execute command
-        if arguments["TEST-COMMAND"]:
-            command = list(arguments["TEST-COMMAND"])
+        if arguments["PYTEST-COMMAND"]:
+            command = list(arguments["PYTEST-COMMAND"])
         else:
             command = list(PYTEST)
             command += arguments["<file-or-directory>"]
@@ -878,8 +1550,7 @@ async def play(loop, arguments):
             command=command,
             seed=seed,
         )
-        value = list(command.items())
-        db[lexode.pack((0, "command"))] = lexode.pack(value)
+        db.set_config("command", command)
 
         # let's create mutations!
         count = await play_create_mutations(loop, root, db, max_workers, arguments)
@@ -888,7 +1559,7 @@ async def play(loop, arguments):
 
 
 def mutation_diff_size(db, uid):
-    _, diff = lexode.unpack(db[lexode.pack([1, uid])])
+    _, diff = db.get_mutation(uid)
     out = len(zstd.decompress(diff))
     return out
 
@@ -912,11 +1583,11 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
             log.info(msg)
             skip = input().startswith("s")
             if skip:
-                db[lexode.pack([2, uid])] = b"\x01"
+                db.set_result(uid, 1)
                 return
             # Otherwise loop to re-test...
         else:
-            del db[lexode.pack([2, uid])]
+            db.del_result(uid)
             return
 
 
@@ -924,10 +1595,8 @@ def replay(arguments):
     root = Path(".")
 
     with database_open(root) as db:
-        command = db[lexode.pack((0, "command"))]
+        command = db.get_config("command")
 
-    command = lexode.unpack(command)
-    command = dict(command)
     seed = command.pop("seed")
     random.seed(seed)
     command = command.pop("command")
@@ -936,9 +1605,7 @@ def replay(arguments):
 
     with database_open(root) as db:
         while True:
-            uids = (
-                lexode.unpack(k)[1] for k, v in db[lexode.pack([2]) :] if v == b"\x00"
-            )
+            uids = [uid for (uid, _) in db.list_results(status=0)]
             uids = sorted(
                 uids,
                 key=functools.partial(mutation_diff_size, db),
@@ -954,13 +1621,13 @@ def replay(arguments):
 
 def mutation_list():
     with database_open(".") as db:
-        uids = ((lexode.unpack(k)[1], v) for k, v in db[lexode.pack([2]) :])
+        uids = db.list_results()
         uids = sorted(uids, key=lambda x: mutation_diff_size(db, x[0]), reverse=True)
     if not uids:
         log.info("No mutation failures 👍")
         sys.exit(0)
-    for (uid, type) in uids:
-        log.info("{}\t{}".format(uid.hex(), "skipped" if type == b"\x01" else ""))
+    for (uid, status) in uids:
+        log.info("{}\t{}".format(uid.hex(), "skipped" if status == 1 else ""))
 
 
 def mutation_show(uid):
@@ -968,7 +1635,7 @@ def mutation_show(uid):
     log.info("mutation show {}", uid.hex)
     log.info("")
     with database_open(".") as db:
-        path, diff = lexode.unpack(db[lexode.pack([1, uid.bytes])])
+        path, diff = db.get_mutation(uid.bytes)
     diff = zstd.decompress(diff).decode("utf8")
 
     terminal256 = pygments.formatters.get_formatter_by_name("terminal256")
@@ -997,14 +1664,13 @@ def mutation_show(uid):
 
 
 def mutation_apply(uid):
-    # TODO: add support for uuid inside lexode
     uid = UUID(hex=uid)
     with database_open(".") as db:
-        path, diff = lexode.unpack(db[lexode.pack([1, uid])])
+        path, diff = db.get_mutation(uid.bytes)
     diff = zstd.decompress(diff).decode("utf8")
     with open(path, "r") as f:
         source = f.read()
-    patched = patch(diff, source)
+    patched = patch(diff, ast.unparse(ast.parse(source)))
     with open(path, "w") as f:
         f.write(patched)
 
