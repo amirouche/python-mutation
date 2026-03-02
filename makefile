@@ -12,8 +12,9 @@ init: ## Prepare the host sytem for development
 check-only:
 	python3 mutation.py play tests.py --include="foobar/ex.py" --include="foobar/__init__.py" --exclude="tests.py" || exit 1
 
-check-foobar: ## Run mutation tests over foobar/ex.py using foobar/tests.py; survivors are expected
-	python3 mutation.py play foobar/tests.py --include="foobar/ex.py" --exclude="foobar/tests.py" || true
+check-foobar: ## Verify foobar/test.py is weak: mutation survivors expected
+	python3 mutation.py play foobar/test.py --include="foobar/ex.py"
+	python3 -c "import sqlite3,sys; n=sqlite3.connect('.mutation.db').execute('SELECT COUNT(*) FROM results').fetchone()[0]; print(f'Survivors: {n}'); sys.exit(0 if n>0 else 1)"
 
 check: ## Run tests
 	make check-only
