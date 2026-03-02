@@ -1256,6 +1256,18 @@ def mutation_pass(args):  # TODO: rename
     command = command + ["--mutation={}".format(uid.hex())]
     log.debug("Running command: {}", ' '.join(command))
     out = run(command, timeout=timeout, silent=True)
+    if out == 4:
+        # pytest exit code 4 = "command line usage error": --mutation flag was
+        # not recognised, which means mutation.py is not loaded as a pytest
+        # plugin.  Treat this as a hard error so it doesn't silently look like
+        # every mutation was caught.
+        log.error(
+            "pytest exited with code 4 (unrecognised arguments) for command: `{}`\n"
+            "Hint: mutation.py is not loaded as a pytest plugin. "
+            "Add `pytest_plugins = [\"mutation\"]` to your conftest.py.",
+            " ".join(command),
+        )
+        sys.exit(1)
     if out == 0:
         msg = "no error with mutation: {} ({})"
         log.trace(msg, " ".join(command), out)
@@ -1269,7 +1281,7 @@ def mutation_pass(args):  # TODO: rename
         return True
 
 
-PYTEST = "pytest --exitfirst --no-header --tb=no --quiet --assert=plain"
+PYTEST = "python3 -m pytest -p mutation --exitfirst --no-header --tb=no --quiet --assert=plain"
 PYTEST = shlex.split(PYTEST)
 
 
