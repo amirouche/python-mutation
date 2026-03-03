@@ -12,6 +12,9 @@ init: ## Prepare the host sytem for development
 check-only:
 	python3 mutation.py play tests.py --include="foobar/ex.py" --include="foobar/__init__.py" --exclude="tests.py" || exit 1
 
+check-foobar: ## Run mutation tests over foobar/ex.py using foobar/tests.py; survivors are expected
+	python3 mutation.py play foobar/tests.py --include="foobar/ex.py" --exclude="foobar/tests.py" || true
+
 check: ## Run tests
 	make check-only
 	#pytest -vvv --exitfirst --capture=no $(MAIN)
