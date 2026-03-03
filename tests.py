@@ -1,4 +1,5 @@
 import ast as stdlib_ast
+import random
 import sys
 
 from foobar.ex import decrement_by_two
@@ -6,6 +7,7 @@ import ast as _ast
 from mutation import (
     AugAssignToAssign,
     BreakToReturn,
+    Comparison,
     ForceConditional,
     MutateAssignment,
     MutateCallArgs,
@@ -17,9 +19,13 @@ from mutation import (
     MutateGlobal,
     MutateIdentity,
     MutateIterator,
+    MutateKeyword,
     MutateLambda,
+    MutateNumber,
+    MutateOperator,
     MutateReturn,
     MutateSlice,
+    MutateString,
     MutateStringMethod,
     MutateYield,
     Mutation,
@@ -29,6 +35,13 @@ from mutation import (
     SwapArguments,
     ZeroIteration,
     iter_deltas,
+    Database,
+    diff_hash,
+    write_ignored_file,
+    mutation_ignored_gc,
+    CLASSIFICATION_REAL_GAP,
+    CLASSIFICATION_EQUIVALENT,
+    CLASSIFICATION_WONT_FIX,
 )
 from mutation import patch as mutation_patch
 
@@ -444,6 +457,205 @@ def test_no_syntax_error_mutations_docstring():
     assert not bad, "iter_deltas yielded {:d} syntax-error mutation(s):\n{}".format(
         len(bad), "\n---\n".join(bad)
     )
+
+
+def test_mutate_number():
+    source = "def f():\n    return 100\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    random.seed(42)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateNumber()]))
+    assert deltas
+    for d in deltas:
+        m = mutation_patch(d, canonical)
+        assert "return 100" not in m
+
+
+def test_mutate_string():
+    source = "def f():\n    return 'hello'\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateString()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("mutated string hello" in m for m in mutated)
+
+
+def test_mutate_string_bytes():
+    source = "def f():\n    return b'data'\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateString()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("coffeebad" in m for m in mutated)
+
+
+def test_mutate_keyword_bool_constants():
+    source = "def f():\n    return True\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateKeyword()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("return False" in m for m in mutated)
+    assert any("return None" in m for m in mutated)
+
+
+def test_mutate_keyword_bool_op():
+    source = "def f(a, b):\n    return a and b\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateKeyword()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("a or b" in m for m in mutated)
+
+
+def test_mutate_keyword_flow():
+    source = "def f(items):\n    for x in items:\n        break\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateKeyword()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("continue" in m for m in mutated)
+    assert any("pass" in m for m in mutated)
+
+
+def test_comparison():
+    source = "def f(x):\n    return x > 0\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [Comparison()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("not (x > 0)" in m or "not x > 0" in m for m in mutated)
+
+
+def test_mutate_operator_binop():
+    source = "def f(a, b):\n    return a + b\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateOperator()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("a - b" in m for m in mutated)
+    assert any("a * b" in m for m in mutated)
+
+
+def test_mutate_operator_compare():
+    source = "def f(a, b):\n    return a < b\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateOperator()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("a > b" in m for m in mutated)
+    assert any("a <= b" in m for m in mutated)
+    assert any("a == b" in m for m in mutated)
+
+
+# -- Database and helper tests -------------------------------------------------
+
+
+def _make_db(tmp_path):
+    """Create a Database at a temp path with one mutation and one result."""
+    import zstandard as zstd
+    from ulid import ULID
+    db = Database(str(tmp_path / "test.mutation.db"))
+    uid = ULID().to_uuid().bytes
+    diff = b"--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+    db.store_mutations([(uid, "f.py", zstd.compress(diff))])
+    db.set_result(uid, 0)  # survived
+    return db, uid, diff
+
+
+def test_diff_hash():
+    h = diff_hash("hello")
+    assert len(h) == 64  # sha256 hex digest
+    assert h == diff_hash("hello")   # deterministic
+    assert h != diff_hash("world")
+
+
+def test_write_ignored_file(tmp_path):
+    diff_text = "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+    h = write_ignored_file(str(tmp_path), diff_text, "f.py", "always zero")
+    ignored = tmp_path / ".mutations.ignored" / "{}.diff".format(h)
+    assert ignored.exists()
+    content = ignored.read_text()
+    assert "Case 3: equivalent mutation" in content
+    assert "always zero" in content
+    assert diff_text in content
+
+
+def test_write_ignored_file_no_reason(tmp_path):
+    diff_text = "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+    h = write_ignored_file(str(tmp_path), diff_text, "f.py", "")
+    ignored = tmp_path / ".mutations.ignored" / "{}.diff".format(h)
+    content = ignored.read_text()
+    assert " \u2014 " not in content  # no separator when no reason
+
+
+def test_database_count_mutations(tmp_path):
+    db, uid, _ = _make_db(tmp_path)
+    assert db.count_mutations() == 1
+
+
+def test_database_set_classification(tmp_path):
+    db, uid, _ = _make_db(tmp_path)
+    db.set_classification(uid, CLASSIFICATION_REAL_GAP)
+    counts = db.get_classification_counts()
+    assert counts[CLASSIFICATION_REAL_GAP] == 1
+
+
+def test_database_list_results_for_replay_unclassified(tmp_path):
+    db, uid, _ = _make_db(tmp_path)
+    rows = db.list_results_for_replay()
+    assert any(r[0] == uid for r in rows)
+
+
+def test_database_list_results_for_replay_wont_fix_excluded(tmp_path):
+    db, uid, _ = _make_db(tmp_path)
+    db.set_classification(uid, CLASSIFICATION_WONT_FIX)
+    rows = db.list_results_for_replay()
+    assert not any(r[0] == uid for r in rows)
+
+
+def test_database_list_results_for_replay_equivalent_excluded(tmp_path):
+    db, uid, _ = _make_db(tmp_path)
+    db.set_classification(uid, CLASSIFICATION_EQUIVALENT)
+    rows = db.list_results_for_replay()
+    assert not any(r[0] == uid for r in rows)
+
+
+def test_mutation_ignored_gc_removes_stale(tmp_path):
+    diff_text = "--- a/nosuchfile.py\n+++ b/nosuchfile.py\n@@ -1 +1 @@\n-x=1\n+x=2\n"
+    write_ignored_file(str(tmp_path), diff_text, "nosuchfile.py", "")
+    assert len(list((tmp_path / ".mutations.ignored").glob("*.diff"))) == 1
+    mutation_ignored_gc(str(tmp_path))
+    assert len(list((tmp_path / ".mutations.ignored").glob("*.diff"))) == 0
+
+
+def test_mutation_ignored_gc_keeps_valid(tmp_path):
+    import difflib
+    py_file = tmp_path / "m.py"
+    py_file.write_text("x = 1\n")
+    source = stdlib_ast.unparse(stdlib_ast.parse("x = 1\n"))
+    diff_lines = list(difflib.unified_diff(
+        source.splitlines(keepends=True),
+        "x = 2\n".splitlines(keepends=True),
+        fromfile="a/m.py", tofile="b/m.py",
+    ))
+    diff_text = "".join(diff_lines)
+    write_ignored_file(str(tmp_path), diff_text, "m.py", "")
+    mutation_ignored_gc(str(tmp_path))
+    assert len(list((tmp_path / ".mutations.ignored").glob("*.diff"))) == 1
+
+
+def test_mutation_ignored_gc_no_dir(tmp_path):
+    # Should not raise when .mutations.ignored/ doesn't exist
+    mutation_ignored_gc(str(tmp_path))
 
 
 if hasattr(_ast, "Match"):
