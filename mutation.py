@@ -1293,10 +1293,15 @@ def coverage_read(root):
     out = dict()
     root = root.resolve()
     for filepath in filepaths:
-        if not filepath.startswith(str(root)):
-            continue
-        key = str(Path(filepath).relative_to(root))
-        value = set(data.lines(filepath))
+        if filepath.startswith(str(root)):
+            key = str(Path(filepath).relative_to(root))
+        else:
+            # coverage.py sometimes records relative paths; resolve against root
+            resolved = (root / filepath).resolve()
+            if not resolved.is_relative_to(root):
+                continue
+            key = str(resolved.relative_to(root))
+        value = set(data.lines(filepath) or [])
         out[key] = value
     return out
 
@@ -1417,6 +1422,9 @@ def check_tests(root, seed, arguments, command=None):
                 "--cov=.",
                 "--cov-branch",
                 "--no-cov-on-fail",
+                # Override any project-level --cov-fail-under; mutation.py only
+                # cares whether tests pass, not whether coverage meets a threshold.
+                "--cov-fail-under=0",
                 # Pass random seed
                 "--randomly-seed={}".format(seed),
             ]
@@ -1447,6 +1455,7 @@ def check_tests(root, seed, arguments, command=None):
             "--cov=.",
             "--cov-branch",
             "--no-cov-on-fail",
+            "--cov-fail-under=0",
             # Pass random seed
             "--randomly-seed={}".format(seed),
         ]
