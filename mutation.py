@@ -7,6 +7,8 @@ Usage:
   mutation list
   mutation show MUTATION
   mutation apply MUTATION
+  mutation summary
+  mutation gc
   mutation (-h | --help)
   mutation --version
 
@@ -31,6 +33,7 @@ import ast
 import asyncio
 import fnmatch
 import functools
+import hashlib
 import itertools
 import json
 import os
@@ -70,6 +73,12 @@ MINUTE = 60  # seconds
 HOUR = 60 * MINUTE
 DAY = 24 * HOUR
 MONTH = 31 * DAY
+
+CLASSIFICATION_REAL_GAP  = 1
+CLASSIFICATION_FRAGILE   = 2
+CLASSIFICATION_EQUIVALENT = 3
+CLASSIFICATION_WONT_FIX  = 4
+CLASSIFICATION_TODO      = 5
 
 
 def humanize(seconds):
@@ -208,6 +217,11 @@ class Database:
             "(uid BLOB PRIMARY KEY, status INTEGER)"
         )
         self._conn.commit()
+        try:
+            self._conn.execute("ALTER TABLE results ADD COLUMN classification INTEGER")
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
     def __enter__(self):
         return self
@@ -277,6 +291,31 @@ class Database:
 
     def count_results(self):
         return self._conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+
+    def count_mutations(self):
+        return self._conn.execute("SELECT COUNT(*) FROM mutations").fetchone()[0]
+
+    def set_classification(self, uid, cls):
+        self._conn.execute(
+            "UPDATE results SET classification = ? WHERE uid = ?", (cls, uid)
+        )
+        self._conn.commit()
+
+    def list_results_for_replay(self):
+        """Return uids in the replay queue: survived + not permanently dismissed."""
+        return self._conn.execute(
+            "SELECT uid FROM results "
+            "WHERE status IN (0, 1) "
+            "AND (classification IS NULL OR classification NOT IN (?, ?))",
+            (CLASSIFICATION_EQUIVALENT, CLASSIFICATION_WONT_FIX),
+        ).fetchall()
+
+    def get_classification_counts(self):
+        """Return dict mapping classification value (or None) -> count."""
+        rows = self._conn.execute(
+            "SELECT classification, COUNT(*) FROM results GROUP BY classification"
+        ).fetchall()
+        return {cls: count for cls, count in rows}
 
 
 class Mutation(type):
@@ -1204,6 +1243,16 @@ def for_each_par_map(loop, pool, inc, proc, items):
 
 def mutation_pass(args):  # TODO: rename
     command, uid, timeout = args
+    # Check if this mutation was previously classified as equivalent
+    with database_open(".", timeout=timeout) as db:
+        _, diff_bytes = db.get_mutation(uid)
+    diff_text = zstd.decompress(diff_bytes).decode("utf8")
+    ignored_file = Path(".mutations.ignored") / "{}.diff".format(diff_hash(diff_text))
+    if ignored_file.exists():
+        log.debug("Skipping ignored mutation: {}", uid.hex())
+        with database_open(".", timeout=timeout) as db:
+            db.del_result(uid)
+        return True
     command = command + ["--mutation={}".format(uid.hex())]
     log.debug("Running command: {}", ' '.join(command))
     out = run(command, timeout=timeout, silent=True)
@@ -1552,6 +1601,8 @@ async def play(loop, arguments):
         )
         db.set_config("command", command)
 
+        # GC stale ignore files before generating new mutations
+        mutation_ignored_gc(root)
         # let's create mutations!
         count = await play_create_mutations(loop, root, db, max_workers, arguments)
         # Let's run tests against mutations!
@@ -1564,12 +1615,28 @@ def mutation_diff_size(db, uid):
     return out
 
 
+def diff_hash(diff_text):
+    return hashlib.sha256(diff_text.encode()).hexdigest()
+
+
+def write_ignored_file(root, diff_text, path, reason):
+    ignored_dir = Path(root) / ".mutations.ignored"
+    ignored_dir.mkdir(exist_ok=True)
+    header = "# Case 3: equivalent mutation"
+    if reason:
+        header += " — " + reason
+    content = header + "\n" + diff_text
+    h = diff_hash(diff_text)
+    ignored_file = ignored_dir / "{}.diff".format(h)
+    ignored_file.write_text(content)
+    return h
+
+
 def replay_mutation(db, uid, alpha, seed, max_workers, command):
-    log.info("* You can use Ctrl+C to exit at anytime, you progress is saved.")
+    log.info("* You can use Ctrl+C to exit at anytime, your progress is saved.")
 
     command = list(command)
     command.append("--randomly-seed={}".format(seed))
-
     max_workers = 1
     if max_workers > 1:
         command.append("--numprocesses={}".format(max_workers))
@@ -1577,18 +1644,49 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
 
     while True:
         ok = mutation_pass((command, uid, timeout))
-        if not ok:
-            mutation_show(uid.hex())
-            msg = "* Type 'skip' to go to next mutation or enter to retry."
-            log.info(msg)
-            skip = input().startswith("s")
-            if skip:
-                db.set_result(uid, 1)
-                return
-            # Otherwise loop to re-test...
-        else:
-            db.del_result(uid)
-            return
+        if ok:
+            # Mutation now caught — green
+            return None
+
+        # Mutation still survives — show diff and classification menu
+        mutation_show(uid.hex())
+        log.info("")
+        log.info("  [r] Replay        — re-run this mutation against current test suite")
+        log.info("  [1] Real gap      — I will write a test (keeps in queue)")
+        log.info("  [2] Fragile       — risk accepted (keeps in queue, marked)")
+        log.info("  [3] Equivalent    — semantically invisible (writes to .mutations.ignored/)")
+        log.info("  [4] Won't fix     — known gap, consciously accepted (never resurfaces)")
+        log.info("  [5] Todo          — real gap, not fixing now (resurfaces next replay)")
+        log.info("  [s] Skip          — undecided, back of queue")
+        log.info("  [q] Quit")
+        choice = input("> ").strip().lower()
+
+        if choice == "r":
+            continue
+        elif choice == "1":
+            db.set_classification(uid, CLASSIFICATION_REAL_GAP)
+            return None
+        elif choice == "2":
+            db.set_classification(uid, CLASSIFICATION_FRAGILE)
+            return None
+        elif choice == "3":
+            reason = input("Optional one-line reason (or Enter to skip): ").strip()
+            path, diff_bytes = db.get_mutation(uid)
+            diff = zstd.decompress(diff_bytes).decode("utf8")
+            write_ignored_file(".", diff, path, reason)
+            db.set_classification(uid, CLASSIFICATION_EQUIVALENT)
+            return None
+        elif choice == "4":
+            db.set_classification(uid, CLASSIFICATION_WONT_FIX)
+            return None
+        elif choice == "5":
+            db.set_classification(uid, CLASSIFICATION_TODO)
+            return None
+        elif choice == "s":
+            return "skip"   # caller appends uid to back of queue
+        elif choice == "q":
+            sys.exit(0)
+        # else: invalid input — loop back to menu
 
 
 def replay(arguments):
@@ -1605,7 +1703,7 @@ def replay(arguments):
 
     with database_open(root) as db:
         while True:
-            uids = [uid for (uid, _) in db.list_results(status=0)]
+            uids = [uid for (uid,) in db.list_results_for_replay()]
             uids = sorted(
                 uids,
                 key=functools.partial(mutation_diff_size, db),
@@ -1616,7 +1714,9 @@ def replay(arguments):
                 sys.exit(0)
             while uids:
                 uid = uids.pop(0)
-                replay_mutation(db, uid, alpha, seed, max_workers, command)
+                result = replay_mutation(db, uid, alpha, seed, max_workers, command)
+                if result == "skip":
+                    uids.append(uid)
 
 
 def mutation_list():
@@ -1628,6 +1728,75 @@ def mutation_list():
         sys.exit(0)
     for (uid, status) in uids:
         log.info("{}\t{}".format(uid.hex(), "skipped" if status == 1 else ""))
+
+
+def mutation_summary():
+    root = Path(".")
+    with database_open(root) as db:
+        total_mutations = db.count_mutations()
+        total_results = db.count_results()
+        counts = db.get_classification_counts()
+
+    killed = total_mutations - total_results
+
+    unreviewed  = counts.get(None, 0) + counts.get(1, 0)  # None + old status=1 skip
+    real_gaps   = counts.get(CLASSIFICATION_REAL_GAP, 0)
+    fragile     = counts.get(CLASSIFICATION_FRAGILE, 0)
+    equivalent  = counts.get(CLASSIFICATION_EQUIVALENT, 0)
+    wont_fix    = counts.get(CLASSIFICATION_WONT_FIX, 0)
+    todo        = counts.get(CLASSIFICATION_TODO, 0)
+
+    survived = total_results
+    tested   = total_mutations
+
+    ignored_dir = root / ".mutations.ignored"
+    ignored_files = len(list(ignored_dir.glob("*.diff"))) if ignored_dir.exists() else 0
+
+    log.info("Mutations generated:  {:>6,}", total_mutations)
+    log.info("Tested:               {:>6,}", tested)
+    log.info("Killed:               {:>6,}", killed)
+    log.info("Survived:             {:>6,}", survived)
+    log.info("  — Real gaps:        {:>6,}", real_gaps)
+    log.info("  — Fragile coverage: {:>6,}", fragile)
+    log.info("  — Equivalent:       {:>6,}  (in .mutations.ignored/)", equivalent)
+    log.info("  — Won't fix:        {:>6,}", wont_fix)
+    log.info("  — Todo:             {:>6,}", todo)
+    log.info("  — Unreviewed:       {:>6,}", unreviewed)
+    log.info("Ignored:              {:>6,}", ignored_files)
+
+
+def mutation_ignored_gc(root):
+    root = Path(root)
+    ignored_dir = root / ".mutations.ignored"
+    if not ignored_dir.exists():
+        return
+    removed = 0
+    for ignore_file in ignored_dir.glob("*.diff"):
+        content = ignore_file.read_text()
+        # Strip header comment lines to isolate the diff
+        diff_lines = [l for l in content.splitlines(keepends=True) if not l.startswith("#")]
+        diff_text = "".join(diff_lines).lstrip("\n")
+        # Extract target path from "--- a/path/to/file.py"
+        path = None
+        for line in diff_lines:
+            if line.startswith("--- "):
+                path = line[4:].strip().removeprefix("a/")
+                break
+        if path is None or not (root / path).exists():
+            ignore_file.unlink()
+            log.info("GC: removed stale ignore file {} (source not found)", ignore_file.name)
+            removed += 1
+            continue
+        try:
+            source = (root / path).read_text()
+            normalized = ast.unparse(ast.parse(source))
+            patch(diff_text, normalized)
+        except Exception:
+            ignore_file.unlink()
+            log.info("GC: removed stale ignore file {} (diff no longer applies)", ignore_file.name)
+            removed += 1
+    if removed:
+        log.info("Removed {} stale .mutations.ignored/ file(s).", removed)
 
 
 def mutation_show(uid):
@@ -1708,8 +1877,17 @@ def main():
         mutation_apply(arguments["MUTATION"])
         sys.exit(0)
 
+    if arguments.get("summary", False):
+        mutation_summary()
+        sys.exit(0)
+
+    if arguments.get("gc", False):
+        mutation_ignored_gc(".")
+        sys.exit(0)
+
     # Otherwise run play.
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     loop.run_until_complete(play(loop, arguments))
     loop.close()
 
