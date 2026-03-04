@@ -9,11 +9,11 @@
 set -uo pipefail
 
 MUTATION_PY="/home/ada/src/python/mutation/mutation.py"
-TMP_DIR="/tmp/mutation/tip-of-the-top"
+TMP_DIR="/home/ada/tmp/mutation/tip-of-the-top"
 LOG_DIR="$TMP_DIR/logs"
 SUMMARY_LOG="$TMP_DIR/summary.log"
 SUMMARY_MD="$TMP_DIR/summary.md"
-WORKERS=20
+WORKERS=25
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URLS_FILE="$SCRIPT_DIR/tip-of-the-top.txt"
 
@@ -80,7 +80,7 @@ def get_coverage(project_dir):
     try:
         r = subprocess.run(
             [venv_python, "-m", "coverage", "report",
-             "--format=total", "--ignore-errors",
+             "--format=total", "--ignore-errors", "--fail-under=0",
              "--include=*.py", "--omit=venv/*,mutation.py,conftest.py,setup.py"],
             cwd=project_dir, capture_output=True, text=True, timeout=15
         )
@@ -88,6 +88,27 @@ def get_coverage(project_dir):
         return int(val) if val.isdigit() else None
     except Exception:
         return None
+
+def get_loc(project_dir):
+    total = 0
+    for root, dirs, files in os.walk(project_dir):
+        dirs[:] = [d for d in dirs if d not in ("venv", ".git", "__pycache__", ".tox", "build", "dist")]
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            if f in ("mutation.py", "conftest.py", "setup.py"):
+                continue
+            path = os.path.join(root, f)
+            # skip test files
+            rel = os.path.relpath(path, project_dir)
+            if any(p in rel for p in ("test", "tests", "testing")):
+                continue
+            try:
+                with open(path, "rb") as fh:
+                    total += sum(1 for _ in fh)
+            except Exception:
+                pass
+    return total
 
 rows = []
 for db_path in sorted(glob.glob(f"{tmp_dir}/*/.mutation.db")):
@@ -104,9 +125,10 @@ for db_path in sorted(glob.glob(f"{tmp_dir}/*/.mutation.db")):
         rate = (survived / total_mut * 100) if total_mut > 0 else 0.0
         con.close()
         cov = get_coverage(project_dir)
-        rows.append((repo_name, total_mut, killed, survived, rate, cov, "done"))
+        loc = get_loc(project_dir)
+        rows.append((repo_name, total_mut, killed, survived, rate, cov, loc, "done"))
     except Exception:
-        rows.append((repo_name, 0, 0, 0, 0.0, None, "error"))
+        rows.append((repo_name, 0, 0, 0, 0.0, None, 0, "error"))
 
 rows.sort(key=lambda r: r[4], reverse=True)
 
@@ -115,12 +137,13 @@ lines = []
 lines.append("# Mutation Testing — tip-of-the-top")
 lines.append(f"Updated: {now} | Progress: {progress}/{total}")
 lines.append("")
-lines.append("| # | Project | Coverage | Total | Killed | Survived | Survive% | Status |")
-lines.append("|---|---------|--------:|------:|-------:|---------:|---------:|--------|")
-for i, (name, tot, killed, survived, rate, cov, status) in enumerate(rows, 1):
+lines.append("| # | Project | LOC | Coverage | Mutations | Killed | Survived | Survive% |")
+lines.append("|---|---------|----:|--------:|--------:|-------:|---------:|---------:|")
+for i, (name, tot, killed, survived, rate, cov, loc, status) in enumerate(rows, 1):
     cov_str = f"{cov}%" if cov is not None else "—"
+    loc_str = f"{loc:,}" if loc else "—"
     lines.append(
-        f"| {i} | {name} | {cov_str} | {tot:,} | {killed:,} | {survived:,} | {rate:.1f}% | {status} |"
+        f"| {i} | {name} | {loc_str} | {cov_str} | {tot:,} | {killed:,} | {survived:,} | {rate:.1f}% |"
     )
 
 print("\n".join(lines))
@@ -136,8 +159,8 @@ _claude_debug() {
     local project_dir="$1"
     local repo_name="$2"
     echo "--- Calling claude to debug $repo_name ---"
-    # Unset CLAUDECODE so nested claude invocation is allowed
-    CLAUDECODE="" claude --dangerously-skip-permissions -p \
+    # Unset CLAUDECODE so nested claude invocation is allowed; cap at 30 min
+    CLAUDECODE="" timeout 1800 claude --dangerously-skip-permissions -p \
         "You are fixing a Python project so its test suite passes baseline.
 Project: $repo_name
 Directory: $project_dir
@@ -153,9 +176,9 @@ Steps:
 6. Stop once tests pass (exit 0) or conclude it is unfixable." 2>&1
 }
 
-# Projects to skip (unfixable in this run — see REDO.md):
-#   blist — ez_setup.py + C extension build; setuptools fix needs a clean run
-SKIP_REPOS=( blist )
+# Projects to skip (unfixable in this environment):
+#   anyio — OpenSSL 3.x TLS shutdown regression; test_send_eof_not_implemented fails
+SKIP_REPOS=( anyio )
 
 # ─── Core per-project logic ────────────────────────────────────────────────────
 _run_project() {
