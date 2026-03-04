@@ -28,7 +28,7 @@ mutation replay
 ## Usage
 
 ```
-mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
+mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--without-exception-injection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
 mutation replay [--verbose] [--max-workers=<n>]
 mutation list
 mutation show MUTATION
@@ -168,6 +168,38 @@ if is_valid(x):
 if True:
     save(x)
 ```
+
+</details>
+
+<details><summary><code>InjectException</code> — replace expressions with the exception they raise</summary>
+
+Replace expressions that have well-known failure modes with a `raise` of the exception they can produce. This targets error-handling paths that pass on the happy path but silently break when the environment misbehaves.
+
+The contracts are intentionally narrow — stdlib only, no inference:
+
+| Expression | Injected mutation |
+|---|---|
+| `d[key]` (string key) | `raise KeyError(key)` |
+| `lst[i]` (integer index) | `raise IndexError(i)` |
+| `d[k]` (ambiguous) | both `raise KeyError(k)` and `raise IndexError(k)` |
+| `int(x)`, `float(x)` | `raise ValueError(x)` |
+| `open(path)` | `raise FileNotFoundError(path)` |
+| `next(it)` | `raise StopIteration` |
+| `x / y`, `x // y`, `x % y` | `raise ZeroDivisionError` |
+| `obj.attr` | `raise AttributeError('attr')` |
+| `for x in iterable` | `raise StopIteration` |
+
+Mutations are skipped when the expression is already inside a `try/except` that handles the relevant exception, and never injected inside `except` blocks.
+
+```python
+# before
+value = data[key]
+
+# after
+raise KeyError(key)
+```
+
+Use `--without-exception-injection` to skip all `InjectException` mutations when error-handling paths are intentionally untested or produce too much noise.
 
 </details>
 
