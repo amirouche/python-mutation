@@ -1343,11 +1343,18 @@ def install_module_loader(uid):
 
     components = path[:-3].split("/")
 
+    # For package __init__ files (e.g. schema/__init__.py), the module name
+    # is the package name (e.g. "schema"), not "schema.__init__".
+    if components and components[-1] == "__init__":
+        components = components[:-1]
+
     while components:
         for pythonpath in sys.path:
             filepath = os.path.join(pythonpath, "/".join(components))
-            filepath += ".py"
-            ok = os.path.exists(filepath)
+            # Check for both package __init__.py and regular module .py
+            init_filepath = filepath + "/__init__.py"
+            regular_filepath = filepath + ".py"
+            ok = os.path.exists(init_filepath) or os.path.exists(regular_filepath)
             if ok:
                 module_path = ".".join(components)
                 break
