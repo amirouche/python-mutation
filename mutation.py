@@ -1341,27 +1341,27 @@ def install_module_loader(uid):
 
     patched = patch(diff, ast.unparse(ast.parse(source)))
 
-    components = path[:-3].split("/")
+    # Derive the importable module name by finding which sys.path entry
+    # contains this file.  For src/ layouts (e.g. src/mypkg/__init__.py)
+    # the editable install adds src/ to sys.path, so the module name is
+    # "mypkg" not "src.mypkg".  We resolve every sys.path entry and pick
+    # the one that gives the *shortest* (most specific) module name.
+    path_obj = Path(path).resolve()
+    if path_obj.name == "__init__.py":
+        module_file = path_obj.parent   # package dir: strip __init__.py
+    else:
+        module_file = path_obj.with_suffix("")  # regular module: strip .py
 
-    # For package __init__ files (e.g. schema/__init__.py), the module name
-    # is the package name (e.g. "schema"), not "schema.__init__".
-    if components and components[-1] == "__init__":
-        components = components[:-1]
-
-    while components:
-        for pythonpath in sys.path:
-            filepath = os.path.join(pythonpath, "/".join(components))
-            # Check for both package __init__.py and regular module .py
-            init_filepath = filepath + "/__init__.py"
-            regular_filepath = filepath + ".py"
-            ok = os.path.exists(init_filepath) or os.path.exists(regular_filepath)
-            if ok:
-                module_path = ".".join(components)
-                break
-        else:
-            components.pop()
+    module_path = None
+    for pythonpath in sys.path:
+        base = Path(pythonpath).resolve() if pythonpath else Path(".").resolve()
+        try:
+            rel = module_file.relative_to(base)
+        except ValueError:
             continue
-        break
+        candidate = ".".join(rel.parts)
+        if module_path is None or len(candidate) < len(module_path):
+            module_path = candidate
     if module_path is None:
         raise Exception("sys.path oops!")
 
