@@ -1,6 +1,6 @@
 [project]
 name = "mutation"
-version = "0.5.0"
+version = "0.5.1"
 description = "Your tests pass. But do they actually test anything?"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,6 +19,9 @@ dependencies = [
     "tqdm>=4.67.3",
     "zstandard[cffi]>=0.25.0",
 ]
+
+[project.scripts]
+mutation = "mutation:main"
 
 [dependency-groups]
 dev = [
