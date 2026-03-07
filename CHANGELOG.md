@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.3] - 2026-03-07
+
+### Bug fixes
+
+- Fixed stale `__version__` tuple in `mutation.py` (was `(0, 4, 7)`, now tracks `pyproject.toml`)
+
 ## [0.5.2] - 2026-03-07
 
 ### Bug fixes
