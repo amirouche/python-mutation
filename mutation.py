@@ -58,7 +58,7 @@ from pathlib import Path
 from coverage import Coverage
 from docopt import docopt
 
-__version__ = (0, 5, 4)
+__version__ = (0, 5, 5)
 
 
 MINUTE = 60  # seconds

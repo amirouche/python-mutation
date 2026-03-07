@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.5] - 2026-03-07
+
+### Packaging
+
+- Fixed `build-backend` to use `setuptools.build_meta` instead of `setuptools.backends.legacy:build` (the latter requires a newer setuptools not available in CI)
+
 ## [0.5.4] - 2026-03-07
 
 ### Packaging
