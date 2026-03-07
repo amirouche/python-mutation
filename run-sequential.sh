@@ -37,6 +37,9 @@ _record() {
     local project_dir="$TMP_DIR/$repo_name"
     local db="$project_dir/.mutation.db"
 
+    local commit_hash
+    commit_hash=$(git -C "$project_dir" rev-parse --short HEAD 2>/dev/null || echo "-")
+
     if [ "$status" = "SUCCESS" ] && [ -f "$db" ]; then
         read -r total survived killed rate < <(python3 -c "
 import sqlite3
@@ -55,12 +58,12 @@ except Exception as e:
     print('0 0 0 0.0%')
 con.close()
 " 2>/dev/null || echo "0 0 0 0.0%")
-        printf '%s  %-8s  %-20s  total=%-6s  survived=%-6s  killed=%-6s  rate=%s\n' \
-            "$(ts)" "$status" "$repo_name" "$total" "$survived" "$killed" "$rate" \
+        printf '%s  %-8s  %-20s  commit=%-9s  total=%-6s  survived=%-6s  killed=%-6s  rate=%s\n' \
+            "$(ts)" "$status" "$repo_name" "$commit_hash" "$total" "$survived" "$killed" "$rate" \
             >> "$SUMMARY_LOG"
     else
-        printf '%s  %-8s  %-20s  total=%-6s  survived=%-6s  killed=%-6s  rate=%s\n' \
-            "$(ts)" "$status" "$repo_name" "-" "-" "-" "-" \
+        printf '%s  %-8s  %-20s  commit=%-9s  total=%-6s  survived=%-6s  killed=%-6s  rate=%s\n' \
+            "$(ts)" "$status" "$repo_name" "$commit_hash" "-" "-" "-" "-" \
             >> "$SUMMARY_LOG"
     fi
 }
@@ -94,6 +97,17 @@ def get_coverage(project_dir):
         )
         val = r.stdout.strip()
         return int(val) if val.isdigit() else None
+    except Exception:
+        return None
+
+def get_commit_hash(project_dir):
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=project_dir, capture_output=True, text=True, timeout=5
+        )
+        val = r.stdout.strip()
+        return val if val else None
     except Exception:
         return None
 
@@ -134,9 +148,10 @@ for db_path in sorted(glob.glob(f"{tmp_dir}/*/.mutation.db")):
         con.close()
         cov = get_coverage(project_dir)
         loc = get_loc(project_dir)
-        rows.append((repo_name, total_mut, killed, survived, rate, cov, loc, "done"))
+        commit = get_commit_hash(project_dir)
+        rows.append((repo_name, total_mut, killed, survived, rate, cov, loc, commit, "done"))
     except Exception:
-        rows.append((repo_name, 0, 0, 0, 0.0, None, 0, "error"))
+        rows.append((repo_name, 0, 0, 0, 0.0, None, 0, None, "error"))
 
 rows.sort(key=lambda r: r[4], reverse=True)
 
@@ -145,13 +160,14 @@ lines = []
 lines.append("# Mutation Testing — tip-of-the-top")
 lines.append(f"Updated: {now} | Progress: {progress}/{total}")
 lines.append("")
-lines.append("| # | Project | LOC | Coverage | Mutations | Killed | Survived | Survive% |")
-lines.append("|---|---------|----:|--------:|--------:|-------:|---------:|---------:|")
-for i, (name, tot, killed, survived, rate, cov, loc, status) in enumerate(rows, 1):
+lines.append("| # | Project | Commit | LOC | Coverage | Mutations | Killed | Survived | Survive% |")
+lines.append("|---|---------|--------|----:|--------:|--------:|-------:|---------:|---------:|")
+for i, (name, tot, killed, survived, rate, cov, loc, commit, status) in enumerate(rows, 1):
     cov_str = f"{cov}%" if cov is not None else "—"
     loc_str = f"{loc:,}" if loc else "—"
+    commit_str = commit if commit else "—"
     lines.append(
-        f"| {i} | {name} | {loc_str} | {cov_str} | {tot:,} | {killed:,} | {survived:,} | {rate:.1f}% |"
+        f"| {i} | {name} | {commit_str} | {loc_str} | {cov_str} | {tot:,} | {killed:,} | {survived:,} | {rate:.1f}% |"
     )
 
 print("\n".join(lines))
@@ -431,11 +447,11 @@ echo ""
 
 # Initialize summary log header if new
 if [ ! -f "$SUMMARY_LOG" ]; then
-    printf '%-16s  %-8s  %-20s  %-12s  %-12s  %-12s  %s\n' \
-        "timestamp" "status" "project" "total" "survived" "killed" "rate" \
+    printf '%-16s  %-8s  %-20s  %-16s  %-12s  %-12s  %-12s  %s\n' \
+        "timestamp" "status" "project" "commit" "total" "survived" "killed" "rate" \
         >> "$SUMMARY_LOG"
-    printf '%-16s  %-8s  %-20s  %-12s  %-12s  %-12s  %s\n' \
-        "----------------" "--------" "--------------------" "------------" "------------" "------------" "----" \
+    printf '%-16s  %-8s  %-20s  %-16s  %-12s  %-12s  %-12s  %s\n' \
+        "----------------" "--------" "--------------------" "----------------" "------------" "------------" "------------" "----" \
         >> "$SUMMARY_LOG"
 fi
 
