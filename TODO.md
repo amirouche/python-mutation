@@ -1,5 +1,7 @@
 # TODO
 
+## Known issues
+
 | Project | Known issue |
 |---|---|
 | blist | C extension not built (`setup.py build_ext --inplace`) |
@@ -33,3 +35,47 @@
 | uvicorn | was passing in first run — investigate regression |
 | webassets | killed mid-run — re-run |
 | whenever | tzdata installed but still failing — investigate |
+
+# Target Projects
+
+| # | Project | Repo |
+|---|---------|------|
+| 1 | Apache Superset | apache/superset |
+| 2 | vLLM | vllm-project/vllm |
+| 3 | Home Assistant | home-assistant/core |
+| 4 | OpenBB | OpenBB-finance/OpenBB |
+| 5 | Odoo | odoo/odoo |
+| 6 | Mem0 | mem0ai/mem0 |
+| 7 | Streamlit | streamlit/streamlit |
+| 8 | Sentry | getsentry/sentry |
+| 9 | mitmproxy | mitmproxy/mitmproxy |
+| 10 | Gradio | gradio-app/gradio |
+| 11 | Pyxel | kitao/pyxel |
+| 12 | Solarwolf | pygame/solarwolf |
+| 13 | Pygame | pygame/pygame |
+| 14 | Uvicorn | encode/uvicorn |
+| 15 | Gunicorn | benoitc/gunicorn |
+| 16 | MkDocs | mkdocs/mkdocs |
+| 17 | websockets | python-websockets/websockets |
+| 18 | Endurain | endurain-project/endurain |
+| 19 | Paperless-ngx | paperless-ngx/paperless-ngx |
+| 20 | Jupyter Notebook | jupyter/notebook |
+| 21 | Nikola | getnikola/nikola |
+| 22 | Dramatiq | Bogdanp/dramatiq |
+| 23 | Hypothesis | HypothesisWorks/hypothesis |
+| 24 | pytest | pytest-dev/pytest |
+| 25 | structlog | hynek/structlog |
+| 26 | Loguru | Delgan/loguru |
+| 27 | Apache Airflow | apache/airflow |
+| 28 | Babel | python-babel/babel |
+| 29 | JustHTML | EmilStenstrom/justhtml |
+| 30 | Arcade | pythonarcade/arcade |
+| 31 | Kivy | kivy/kivy |
+| 32 | Pendulum | python-pendulum/pendulum |
+| 33 | Arrow | arrow-py/arrow |
+| 34 | Plotly | plotly/plotly.py |
+| 35 | Bokeh | bokeh/bokeh |
+| 36 | Seaborn | mwaskom/seaborn |
+| 37 | Invoke | pyinvoke/invoke |
+| 38 | asyncio-foundationdb | apple/foundationdb |
+
