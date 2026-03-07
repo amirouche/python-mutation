@@ -1,0 +1,5 @@
+docopt
+pytest-cov
+pytest-randomly
+pytest
+pytest-xdist
