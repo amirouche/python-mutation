@@ -18,8 +18,7 @@ check-foobar: ## Verify foobar/test.py is weak: mutation survivors expected
 
 check: ## Run tests
 	make check-only
-	#pytest -vvv --exitfirst --capture=no $(MAIN)
-	bandit --skip=B101 -r $(MAIN)
+	ruff check $(MAIN)
 
 check-fast: ## Run tests, fail fast
 	pytest -x -vvv --capture=no $(MAIN)
@@ -28,7 +27,7 @@ check-coverage: ## Code coverage
 	pytest --quiet --cov-report=term --cov-report=html --cov=. $(MAIN)
 
 lint: ## Lint the code
-	pylama $(MAIN)
+	ruff check $(MAIN)
 
 doc: ## Build the documentation
 	cd doc && make html
@@ -47,10 +46,11 @@ serve: ## Run the server
 	uvicorn --lifespan on --log-level warning --reload $(MAIN):uvicorn
 
 lock: ## Lock dependencies
-	pip-compile -o requirements.txt requirements.source.txt
+	uv export --no-dev --no-hashes -o requirements.txt
+	uv export --only-dev --no-hashes -o requirements.dev.txt
 
 wip: ## clean up code, and commit wip
-	black $(MAIN)
-	isort --profile black $(MAIN)
+	ruff format $(MAIN)
+	ruff check --fix $(MAIN)
 	git add .
 	git commit -m "wip"

@@ -1,0 +1,27 @@
+[project]
+name = "mutation"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiostream>=0.7.1",
+    "docopt>=0.6.2",
+    "humanize>=4.15.0",
+    "loguru>=0.7.3",
+    "pygments>=2.19.2",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "pytest-randomly>=4.0.1",
+    "pytest-xdist>=3.8.0",
+    "python-ulid>=3.1.0",
+    "termcolor>=3.3.0",
+    "tqdm>=4.67.3",
+    "zstandard[cffi]>=0.25.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.5",
+    "tbvaccine>=0.3.1",
+]
