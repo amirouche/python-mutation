@@ -28,11 +28,16 @@ mutation replay
 ## Usage
 
 ```
-mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--without-exception-injection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
+mutation play [--verbose] [--include=<glob>]... [--exclude=<glob>]...
+              [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>]
+              [--only-deadcode-detection] [--without-exception-injection]
+              [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
 mutation replay [--verbose] [--max-workers=<n>]
 mutation list
 mutation show MUTATION
 mutation apply MUTATION
+mutation summary
+mutation gc
 mutation (-h | --help)
 mutation --version
 ```
