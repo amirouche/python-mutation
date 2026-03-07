@@ -1,6 +1,6 @@
 [project]
 name = "mutation"
-version = "0.5.3"
+version = "0.5.4"
 description = "Your tests pass. But do they actually test anything?"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,6 +22,13 @@ dependencies = [
 
 [project.scripts]
 mutationpy = "mutation:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.backends.legacy:build"
+
+[tool.setuptools]
+py-modules = ["mutation"]
 
 [dependency-groups]
 dev = [

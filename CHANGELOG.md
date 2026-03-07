@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.4] - 2026-03-07
+
+### Packaging
+
+- Added `[build-system]` and `[tool.setuptools] py-modules = ["mutation"]` so `mutation.py` is included in the wheel
+
 ## [0.5.3] - 2026-03-07
 
 ### Bug fixes
