@@ -8,12 +8,20 @@
 
 set -uo pipefail
 
+# Re-exec under a systemd memory-capped scope if not already inside one
+if [ -z "${_UNDER_SYSTEMD_SCOPE:-}" ] && command -v systemd-run &>/dev/null; then
+    exec systemd-run --user --scope \
+        -p MemoryMax=50% \
+        -p MemorySwapMax=0 \
+        env _UNDER_SYSTEMD_SCOPE=1 bash "$0" "$@"
+fi
+
 MUTATION_PY="/home/ada/src/python/mutation/mutation.py"
 TMP_DIR="/home/ada/tmp/mutation/tip-of-the-top"
 LOG_DIR="$TMP_DIR/logs"
 SUMMARY_LOG="$TMP_DIR/summary.log"
 SUMMARY_MD="$TMP_DIR/summary.md"
-WORKERS=25
+WORKERS=$(nproc --ignore=3)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URLS_FILE="$SCRIPT_DIR/tip-of-the-top.txt"
 
@@ -327,6 +335,8 @@ _run_project() {
                 ;;
             returns)
                 "$PIP" install -q covdefaults pytest-mypy-plugins 2>&1 || true
+                # typesafety/ tests check exact mypy output format and fail on mypy version mismatch
+                echo 'collect_ignore_glob = ["typesafety/*"]' >> "$project_dir/conftest.py"
                 ;;
             thefuzz)
                 "$PIP" install -q pycodestyle hypothesis 2>&1 || true
