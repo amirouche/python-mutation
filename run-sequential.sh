@@ -4,7 +4,7 @@
 # On baseline test failure (rc=2), calls claude to diagnose and fix, then retries once.
 # Appends to summary.log and regenerates summary.md after every project.
 #
-# Usage: bash "$HOME/src/python/mutation/run-sequential.sh"
+# Usage: bash "$HOME/src/python/mutation/run-sequential.sh" [urls-file]
 
 set -uo pipefail
 
@@ -23,7 +23,7 @@ SUMMARY_LOG="$TMP_DIR/summary.log"
 SUMMARY_MD="$TMP_DIR/summary.md"
 WORKERS=$(nproc --ignore=3)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-URLS_FILE="$SCRIPT_DIR/tip-of-the-top.txt"
+URLS_FILE="${1:-$SCRIPT_DIR/tip-of-the-top.txt}"
 
 mkdir -p "$LOG_DIR"
 
