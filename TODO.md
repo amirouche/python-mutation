@@ -38,44 +38,42 @@
 
 # Target Projects
 
-| # | Project | Repo |
-|---|---------|------|
-| 1 | Apache Superset | apache/superset |
-| 2 | vLLM | vllm-project/vllm |
-| 3 | Home Assistant | home-assistant/core |
-| 4 | OpenBB | OpenBB-finance/OpenBB |
-| 5 | Odoo | odoo/odoo |
-| 6 | Mem0 | mem0ai/mem0 |
-| 7 | Streamlit | streamlit/streamlit |
-| 8 | Sentry | getsentry/sentry |
-| 9 | mitmproxy | mitmproxy/mitmproxy |
-| 10 | Gradio | gradio-app/gradio |
-| 11 | Pyxel | kitao/pyxel |
-| 12 | Solarwolf | pygame/solarwolf |
-| 13 | Pygame | pygame/pygame |
-| 14 | Uvicorn | encode/uvicorn |
-| 15 | Gunicorn | benoitc/gunicorn |
-| 16 | MkDocs | mkdocs/mkdocs |
-| 17 | websockets | python-websockets/websockets |
-| 18 | Endurain | endurain-project/endurain |
-| 19 | Paperless-ngx | paperless-ngx/paperless-ngx |
-| 20 | Jupyter Notebook | jupyter/notebook |
-| 21 | Nikola | getnikola/nikola |
-| 22 | Dramatiq | Bogdanp/dramatiq |
-| 23 | Hypothesis | HypothesisWorks/hypothesis |
-| 24 | pytest | pytest-dev/pytest |
-| 25 | structlog | hynek/structlog |
-| 26 | Loguru | Delgan/loguru |
-| 27 | Apache Airflow | apache/airflow |
-| 28 | Babel | python-babel/babel |
-| 29 | JustHTML | EmilStenstrom/justhtml |
-| 30 | Arcade | pythonarcade/arcade |
-| 31 | Kivy | kivy/kivy |
-| 32 | Pendulum | python-pendulum/pendulum |
-| 33 | Arrow | arrow-py/arrow |
-| 34 | Plotly | plotly/plotly.py |
-| 35 | Bokeh | bokeh/bokeh |
-| 36 | Seaborn | mwaskom/seaborn |
-| 37 | Invoke | pyinvoke/invoke |
-| 38 | asyncio-foundationdb | apple/foundationdb |
+- https://github.com/apache/superset
+- https://github.com/vllm-project/vllm
+- https://github.com/home-assistant/core
+- https://github.com/OpenBB-finance/OpenBB
+- https://github.com/odoo/odoo
+- https://github.com/mem0ai/mem0
+- https://github.com/streamlit/streamlit
+- https://github.com/getsentry/sentry
+- https://github.com/mitmproxy/mitmproxy
+- https://github.com/gradio-app/gradio
+- https://github.com/kitao/pyxel
+- https://github.com/pygame/solarwolf
+- https://github.com/pygame/pygame
+- https://github.com/encode/uvicorn
+- https://github.com/benoitc/gunicorn
+- https://github.com/mkdocs/mkdocs
+- https://github.com/python-websockets/websockets
+- https://github.com/endurain-project/endurain
+- https://github.com/paperless-ngx/paperless-ngx
+- https://github.com/jupyter/notebook
+- https://github.com/getnikola/nikola
+- https://github.com/Bogdanp/dramatiq
+- https://github.com/HypothesisWorks/hypothesis
+- https://github.com/pytest-dev/pytest
+- https://github.com/hynek/structlog
+- https://github.com/Delgan/loguru
+- https://github.com/apache/airflow
+- https://github.com/python-babel/babel
+- https://github.com/EmilStenstrom/justhtml
+- https://github.com/pythonarcade/arcade
+- https://github.com/kivy/kivy
+- https://github.com/python-pendulum/pendulum
+- https://github.com/arrow-py/arrow
+- https://github.com/plotly/plotly.py
+- https://github.com/bokeh/bokeh
+- https://github.com/mwaskom/seaborn
+- https://github.com/pyinvoke/invoke
+- https://github.com/apple/foundationdb
 

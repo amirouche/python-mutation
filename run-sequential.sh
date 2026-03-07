@@ -4,7 +4,7 @@
 # On baseline test failure (rc=2), calls claude to diagnose and fix, then retries once.
 # Appends to summary.log and regenerates summary.md after every project.
 #
-# Usage: bash /home/ada/src/python/mutation/run-sequential.sh
+# Usage: bash "$HOME/src/python/mutation/run-sequential.sh"
 
 set -uo pipefail
 
@@ -16,8 +16,8 @@ if [ -z "${_UNDER_SYSTEMD_SCOPE:-}" ] && command -v systemd-run &>/dev/null; the
         env _UNDER_SYSTEMD_SCOPE=1 bash "$0" "$@"
 fi
 
-MUTATION_PY="/home/ada/src/python/mutation/mutation.py"
-TMP_DIR="/home/ada/tmp/mutation/tip-of-the-top"
+MUTATION_PY="$HOME/src/python/mutation/mutation.py"
+TMP_DIR="$HOME/tmp/mutation/tip-of-the-top"
 LOG_DIR="$TMP_DIR/logs"
 SUMMARY_LOG="$TMP_DIR/summary.log"
 SUMMARY_MD="$TMP_DIR/summary.md"
