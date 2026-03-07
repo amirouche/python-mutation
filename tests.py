@@ -561,12 +561,12 @@ def test_mutate_operator_compare():
 
 def _make_db(tmp_path):
     """Create a Database at a temp path with one mutation and one result."""
-    import zstandard as zstd
-    from ulid import ULID
+    import zlib
+    from mutation import make_uid
     db = Database(str(tmp_path / "test.mutation.db"))
-    uid = ULID().to_uuid().bytes
+    uid = make_uid()
     diff = b"--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
-    db.store_mutations([(uid, "f.py", zstd.compress(diff))])
+    db.store_mutations([(uid, "f.py", zlib.compress(diff))])
     db.set_result(uid, 0)  # survived
     return db, uid, diff
 
