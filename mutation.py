@@ -36,6 +36,7 @@ import functools
 import hashlib
 import itertools
 import json
+import logging
 import os
 import random
 import re
@@ -45,26 +46,15 @@ import subprocess
 import sys
 import time
 import types
+import zlib
 from concurrent import futures
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import timedelta
 from difflib import unified_diff
-from uuid import UUID
+from pathlib import Path
 
-import pygments
-import pygments.formatters
-import pygments.lexers
-import zstandard as zstd
-from aiostream import pipe, stream
 from coverage import Coverage
 from docopt import docopt
-from humanize import precisedelta
-from loguru import logger as log
-from pathlib import Path
-from termcolor import colored
-from tqdm import tqdm
-from ulid import ULID
 
 __version__ = (0, 4, 7)
 
@@ -82,38 +72,96 @@ CLASSIFICATION_TODO      = 5
 
 
 def humanize(seconds):
-    if seconds < 1:
-        precision = "seconds"
-    elif seconds // DAY != 0:
-        precision = "days"
-    elif seconds // DAY != 0:
-        precision = "hours"
-    elif seconds // HOUR != 0:
-        precision = "minutes"
-    else:
-        precision = "seconds"
-    return precisedelta(timedelta(seconds=seconds), minimum_unit=precision)
+    parts = []
+    if seconds >= DAY:
+        d = int(seconds // DAY)
+        parts.append("{} day{}".format(d, "s" if d != 1 else ""))
+        seconds %= DAY
+    if seconds >= HOUR:
+        h = int(seconds // HOUR)
+        parts.append("{} hour{}".format(h, "s" if h != 1 else ""))
+        seconds %= HOUR
+    if seconds >= MINUTE:
+        m = int(seconds // MINUTE)
+        parts.append("{} minute{}".format(m, "s" if m != 1 else ""))
+        seconds %= MINUTE
+    if not parts or seconds >= 1:
+        s = int(seconds)
+        parts.append("{} second{}".format(s, "s" if s != 1 else ""))
+    return " ".join(parts)
+
+
+def green(text):
+    return "\033[1;32m" + text + "\033[0m"
+
+
+def red(text):
+    return "\033[1;31m" + text + "\033[0m"
+
+
+def make_uid():
+    ts = int(time.time() * 1e6).to_bytes(8, "big")
+    rand = os.urandom(8)
+    return ts + rand
+
+
+class Progress:
+    def __init__(self, total, desc=""):
+        self.total = total
+        self.desc = desc
+        self.n = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        print("\r{}: {}/{}".format(self.desc, self.n, self.total), flush=True)
+        print()
+
+    def update(self, n=1):
+        self.n += n
+        print("\r{}: {}/{}".format(self.desc, self.n, self.total), end="", flush=True)
+
+
+class _Logger:
+    TRACE = 5
+
+    def __init__(self):
+        logging.addLevelName(self.TRACE, "TRACE")
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        self._log = logging.getLogger("mutation")
+        self._log.addHandler(handler)
+        self._log.setLevel(logging.INFO)
+
+    def remove(self):
+        pass
+
+    def add(self, stream, *, format=None, level="INFO", colorize=False, enqueue=False):
+        numeric = getattr(logging, level, self.TRACE)
+        self._log.setLevel(numeric)
+
+    def _fmt(self, msg, *args):
+        if args:
+            for arg in args:
+                msg = msg.replace("{}", str(arg), 1)
+        return msg
+
+    def trace(self, msg, *args):   self._log.log(self.TRACE, self._fmt(msg, *args))
+    def debug(self, msg, *args):   self._log.debug(self._fmt(msg, *args))
+    def info(self, msg, *args):    self._log.info(self._fmt(msg, *args))
+    def warning(self, msg, *args): self._log.warning(self._fmt(msg, *args))
+    def error(self, msg, *args):   self._log.error(self._fmt(msg, *args))
+
+
+log = _Logger()
 
 
 MUTATION = "https://youtu.be/ihZEaj9ml4w?list=PLOSNaPJYYhrtliZqyEWDWL0oqeH0hOHnj"
 
 
-log.remove()
 if os.environ.get("DEBUG", False):
-    log.add(
-        sys.stdout,
-        format="<level>{level}</level> {message}",
-        level="TRACE",
-        colorize=True,
-        enqueue=True,
-    )
-else:
-    log.add(
-        sys.stdout,
-        format="<level>{level}</level> {message}",
-        level="INFO",
-        enqueue=True,
-    )
+    log.add(sys.stdout, level="TRACE")
 
 
 # The function patch was taken somewhere over the rainbow...
@@ -1139,30 +1187,19 @@ def iter_deltas(source, path, coverage, mutations):
 
 
 async def pool_for_each_par_map(loop, pool, f, p, iterator):
-    zx = stream.iterate(iterator)
-    zx = zx | pipe.map(lambda x: loop.run_in_executor(pool, p, x))
-    async with zx.stream() as streamer:
-        limit = pool._max_workers
-        unfinished = []
-        while True:
-            tasks = []
-            for i in range(limit):
-                try:
-                    task = await streamer.__anext__()
-                except StopAsyncIteration:
-                    limit = 0
-                else:
-                    tasks.append(task)
-            tasks = tasks + list(unfinished)
-            if not tasks:
-                break
-            finished, unfinished = await asyncio.wait(
-                tasks, return_when=asyncio.FIRST_COMPLETED
-            )
-            for finish in finished:
-                out = finish.result()
-                f(out)
-            limit = pool._max_workers - len(unfinished)
+    limit = pool._max_workers
+    pending = set()
+    for item in iterator:
+        if len(pending) >= limit:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                f(task.result())
+        future = loop.run_in_executor(pool, p, item)
+        pending.add(future)
+    if pending:
+        done, _ = await asyncio.wait(pending)
+        for task in done:
+            f(task.result())
 
 
 def mutation_create(item):
@@ -1178,17 +1215,17 @@ def mutation_create(item):
     deltas = iter_deltas(source, path, coverage, mutations)
     # return the compressed deltas to save some time in the
     # mainthread.
-    out = [(path, zstd.compress(x.encode("utf8"))) for x in deltas]
+    out = [(path, zlib.compress(x.encode("utf8"))) for x in deltas]
     log.trace("There is {} mutations for the file `{}`", len(out), path)
     return out
 
 
 def install_module_loader(uid):
-    mutation_show(uid.hex)
+    mutation_show(uid.hex())
 
     with Database(".mutation.db") as db:
-        path, diff = db.get_mutation(uid.bytes)
-    diff = zstd.decompress(diff).decode("utf8")
+        path, diff = db.get_mutation(uid)
+    diff = zlib.decompress(diff).decode("utf8")
 
     with open(path) as f:
         source = f.read()
@@ -1224,7 +1261,7 @@ def install_module_loader(uid):
 def pytest_configure(config):
     mutation = config.getoption("mutation", default=None)
     if mutation is not None:
-        uid = UUID(hex=mutation)
+        uid = bytes.fromhex(mutation)
         install_module_loader(uid)
 
 
@@ -1246,7 +1283,7 @@ def mutation_pass(args):  # TODO: rename
     # Check if this mutation was previously classified as equivalent
     with database_open(".", timeout=timeout) as db:
         _, diff_bytes = db.get_mutation(uid)
-    diff_text = zstd.decompress(diff_bytes).decode("utf8")
+    diff_text = zlib.decompress(diff_bytes).decode("utf8")
     ignored_file = Path(".mutations.ignored") / "{}.diff".format(diff_hash(diff_text))
     if ignored_file.exists():
         log.debug("Skipping ignored mutation: {}", uid.hex())
@@ -1533,7 +1570,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
     total = 0
 
     log.info("Crafting mutations from {} files...", len(items))
-    with tqdm(total=len(items), desc="Files") as progress:
+    with Progress(total=len(items), desc="Files") as progress:
 
         def on_mutations_created(items):
             nonlocal total
@@ -1541,7 +1578,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
             progress.update()
             total += len(items)
             # TODO: replace ULID with a content addressable hash.
-            rows = [(ULID().to_uuid().bytes, str(path), delta) for path, delta in items]
+            rows = [(make_uid(), str(path), delta) for path, delta in items]
             db.store_mutations(rows)
 
         with timeit() as delta:
@@ -1576,7 +1613,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
     log.info("Testing mutations in progress...")
 
-    with tqdm(total=total, desc="Mutations") as progress:
+    with Progress(total=total, desc="Mutations") as progress:
 
         def on_progress(_):
             progress.update(1)
@@ -1632,7 +1669,7 @@ async def play(loop, arguments):
 
 def mutation_diff_size(db, uid):
     _, diff = db.get_mutation(uid)
-    out = len(zstd.decompress(diff))
+    out = len(zlib.decompress(diff))
     return out
 
 
@@ -1693,7 +1730,7 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
         elif choice == "3":
             reason = input("Optional one-line reason (or Enter to skip): ").strip()
             path, diff_bytes = db.get_mutation(uid)
-            diff = zstd.decompress(diff_bytes).decode("utf8")
+            diff = zlib.decompress(diff_bytes).decode("utf8")
             write_ignored_file(".", diff, path, reason)
             db.set_classification(uid, CLASSIFICATION_EQUIVALENT)
             return None
@@ -1821,43 +1858,31 @@ def mutation_ignored_gc(root):
 
 
 def mutation_show(uid):
-    uid = UUID(hex=uid)
-    log.info("mutation show {}", uid.hex)
+    uid = bytes.fromhex(uid)
+    log.info("mutation show {}", uid.hex())
     log.info("")
     with database_open(".") as db:
-        path, diff = db.get_mutation(uid.bytes)
-    diff = zstd.decompress(diff).decode("utf8")
-
-    terminal256 = pygments.formatters.get_formatter_by_name("terminal256")
-    python = pygments.lexers.get_lexer_by_name("python")
+        path, diff = db.get_mutation(uid)
+    diff = zlib.decompress(diff).decode("utf8")
 
     for line in diff.split("\n"):
         if line.startswith("+++"):
-            delta = colored("+++", "green", attrs=["bold"])
-            highlighted = pygments.highlight(line[3:], python, terminal256)
-            log.info(delta + highlighted.rstrip())
+            log.info(green("+++") + line[3:])
         elif line.startswith("---"):
-            delta = colored("---", "red", attrs=["bold"])
-            highlighted = pygments.highlight(line[3:], python, terminal256)
-            log.info(delta + highlighted.rstrip())
+            log.info(red("---") + line[3:])
         elif line.startswith("+"):
-            delta = colored("+", "green", attrs=["bold"])
-            highlighted = pygments.highlight(line[1:], python, terminal256)
-            log.info(delta + highlighted.rstrip())
+            log.info(green("+") + line[1:])
         elif line.startswith("-"):
-            delta = colored("-", "red", attrs=["bold"])
-            highlighted = pygments.highlight(line[1:], python, terminal256)
-            log.info(delta + highlighted.rstrip())
+            log.info(red("-") + line[1:])
         else:
-            highlighted = pygments.highlight(line, python, terminal256)
-            log.info(highlighted.rstrip())
+            log.info(line)
 
 
 def mutation_apply(uid):
-    uid = UUID(hex=uid)
+    uid = bytes.fromhex(uid)
     with database_open(".") as db:
-        path, diff = db.get_mutation(uid.bytes)
-    diff = zstd.decompress(diff).decode("utf8")
+        path, diff = db.get_mutation(uid)
+    diff = zlib.decompress(diff).decode("utf8")
     with open(path, "r") as f:
         source = f.read()
     patched = patch(diff, ast.unparse(ast.parse(source)))
@@ -1870,13 +1895,7 @@ def main():
 
     if arguments.get("--verbose", False):
         log.remove()
-        log.add(
-            sys.stdout,
-            format="<level>{level}</level> {message}",
-            level="DEBUG",
-            colorize=True,
-            enqueue=True,
-        )
+        log.add(sys.stdout, level="DEBUG")
 
     log.debug("Mutation at {}", MUTATION)
 
