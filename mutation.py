@@ -1940,9 +1940,6 @@ def write_ignored_file(root, diff_text, path, reason):
 def replay_mutation(uid, alpha, seed, max_workers, command):
     command = list(command)
     command.append("--randomly-seed={}".format(seed))
-    max_workers = 1
-    if max_workers > 1:
-        command.append("--numprocesses={}".format(max_workers))
     timeout = alpha * 2
 
     # Check applicability before launching pytest to give immediate feedback.
