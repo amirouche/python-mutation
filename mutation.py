@@ -1712,7 +1712,7 @@ def check_tests(root, seed, arguments, command=None):
             out = run(command, 3600, verbose=verbose)
 
         if out != 0:
-            msg = "Tests are definitly red! Return code is {}!!"
+            msg = "Tests are definitely red! Return code is {}!!"
             log.error(msg, out)
             log.error("I tried the following command: `{}`", " ".join(command))
             sys.exit(2)
