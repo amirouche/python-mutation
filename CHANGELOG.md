@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.0] - 2026-03-08
+
+### Dependency reduction
+
+- Dropped `docopt`; replaced with `cli_read()`, a custom argument parser (no new dependencies)
+- `mutation.py` now requires only `coverage` at runtime
+
+### New features
+
+- `cli_read()` — custom CLI argument parser returning `(keywords, standalone, extra)` tuples; `--` sentinel passes remaining args to pytest
+- `_diff_applies()` — validates whether a stored diff still applies to current source before patching; used in `mutation_ignored_gc` and `install_module_loader`
+- `CLASSIFICATION_STALE = 6` / `EXIT_STALE = 5` — new classification for mutations whose diffs no longer apply; stale mutations are excluded from the replay queue
+- `MutateString` now skips docstrings (module, class, and function level)
+- `ForceConditional` now covers `while`, `assert`, and ternary (`IfExp`) nodes in addition to `if`
+- `MutateIterator` now handles `AsyncFor` in addition to `For`
+
+### Bug fixes
+
+- `make_uid()`: fixed byte overflow — now uses milliseconds (`time.time_ns() // 1_000_000`) as 6 bytes instead of microseconds as 8 bytes
+- Renamed `mutation_pass` → `mutation_is_survivor` for clarity
+- `replay_mutation` and `mutation_diff_size`: removed `db` argument (functions open their own connection)
+- `run()`: `timeout` is now a required argument to prevent silent unbounded waits
+- Fixed ambiguous variable name `l` → `ln` in `patch()` (ruff E741)
+- Removed unused imports: `functools`, `itertools`
+
+### Tooling
+
+- Set project homepage to `https://github.com/amirouche/mutation.py`
+- CI: `check-survivors` exit code inverted — a zero exit (no survivors) is now a failure, since survivors are expected in the `foobar/` example
+
+### Tests
+
+- 24 new test functions covering `ForceConditional`, `MutateIterator` (AsyncFor), `MutateString` (docstring skipping), `StatementDrop`, `DefinitionDrop`, `InjectException`, and `cli_read`
+
 ## [0.5.5] - 2026-03-07
 
 ### Packaging
