@@ -1625,10 +1625,6 @@ def check_tests(root, seed, arguments, command=None):
 
     log.info("Let's check that the tests are green...")
 
-    if arguments["<file-or-directory>"] and arguments["PYTEST_EXTRA"]:
-        log.error("<file-or-directory> and PYTEST_EXTRA are exclusive!")
-        sys.exit(1)
-
     if command is not None:
         command = list(command)
         if max_workers > 1:
