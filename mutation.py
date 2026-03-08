@@ -2,7 +2,16 @@
 """Mutation.
 
 Usage:
-  mutation play [--verbose] [--exclude=<glob>]... [--only-deadcode-detection] [--without-exception-injection] [--include=<glob>]... [--sampling=<s>] [--randomly-seed=<n>] [--max-workers=<n>] [<file-or-directory> ...] [-- PYTEST-COMMAND ...]
+  mutation play [--verbose]
+                [--exclude=<glob>]...
+                [--only-deadcode-detection]
+                [--without-exception-injection]
+                [--include=<glob>]...
+                [--sampling=<s>]
+                [--randomly-seed=<n>]
+                [--max-workers=<n>]
+                [<file-or-directory> ...]
+                [-- PYTEST-EXTRA ...]
   mutation replay [--verbose] [--max-workers=<n>]
   mutation list
   mutation show MUTATION
@@ -1616,8 +1625,8 @@ def check_tests(root, seed, arguments, command=None):
 
     log.info("Let's check that the tests are green...")
 
-    if arguments["<file-or-directory>"] and arguments["PYTEST-COMMAND"]:
-        log.error("<file-or-directory> and PYTEST-COMMAND are exclusive!")
+    if arguments["<file-or-directory>"] and arguments["PYTEST_EXTRA"]:
+        log.error("<file-or-directory> and PYTEST_EXTRA are exclusive!")
         sys.exit(1)
 
     if command is not None:
@@ -1631,8 +1640,8 @@ def check_tests(root, seed, arguments, command=None):
                 ]
             )
     else:
-        if arguments["PYTEST-COMMAND"]:
-            command = list(arguments["PYTEST-COMMAND"])
+        if arguments["PYTEST_EXTRA"]:
+            command = list(arguments["PYTEST_EXTRA"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -1672,8 +1681,8 @@ def check_tests(root, seed, arguments, command=None):
         log.warning("I tried the following command: `{}`", " ".join(command))
 
         # Same command without parallelization
-        if arguments["PYTEST-COMMAND"]:
-            command = list(arguments["PYTEST-COMMAND"])
+        if arguments["PYTEST_EXTRA"]:
+            command = list(arguments["PYTEST_EXTRA"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -1792,7 +1801,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
 
 async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     # prepare to run tests against mutations
-    command = list(arguments["PYTEST-COMMAND"] or PYTEST)
+    command = list(arguments["PYTEST_EXTRA"] or PYTEST)
     command.append("--randomly-seed={}".format(seed))
     command.extend(arguments["<file-or-directory>"])
 
@@ -1845,8 +1854,8 @@ async def play(loop, arguments):
 
     with database_open(root, recreate=True) as db:
         # store arguments used to execute command
-        if arguments["PYTEST-COMMAND"]:
-            command = list(arguments["PYTEST-COMMAND"])
+        if arguments["PYTEST_EXTRA"]:
+            command = list(arguments["PYTEST_EXTRA"])
         else:
             command = list(PYTEST)
             command += arguments["<file-or-directory>"]
@@ -2086,44 +2095,75 @@ def mutation_apply(uid):
 
 
 def main():
-    arguments = docopt(__doc__, version=__version__)
+    keywords, standalone, extra = cli_read(sys.argv[1:])
 
-    if arguments.get("--verbose", False):
+    kw = {}
+    for k, v in keywords:
+        if k in ("--include", "--exclude"):
+            kw.setdefault(k, []).append(v)
+        else:
+            kw[k] = v
+
+    if kw.get("-h") or kw.get("--help"):
+        print(__doc__)
+        sys.exit(0)
+    if kw.get("--version"):
+        print(".".join(str(x) for x in __version__))
+        sys.exit(0)
+
+    verbose = kw.get("--verbose", False)
+    if verbose:
         log.add(sys.stdout, level="DEBUG")
 
     log.debug("Mutation at {}", MUTATION)
 
-    log.trace(arguments)
+    match standalone:
+        case ["play", *files]:
+            if files and extra:
+                log.error("<file-or-directory> and PYTEST_EXTRA are exclusive!")
+                sys.exit(1)
+            arguments = {
+                "--verbose": verbose,
+                "--include": kw.get("--include"),
+                "--exclude": kw.get("--exclude"),
+                "--only-deadcode-detection": kw.get("--only-deadcode-detection", False),
+                "--without-exception-injection": kw.get("--without-exception-injection", False),
+                "--sampling": kw.get("--sampling"),
+                "--randomly-seed": kw.get("--randomly-seed"),
+                "--max-workers": kw.get("--max-workers"),
+                "<file-or-directory>": files,
+                "PYTEST_EXTRA": extra,
+            }
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(play(loop, arguments))
+            loop.close()
 
-    if arguments["replay"]:
-        replay(arguments)
-        sys.exit(0)
+        case ["replay"]:
+            arguments = {
+                "--verbose": verbose,
+                "--max-workers": kw.get("--max-workers"),
+            }
+            replay(arguments)
 
-    if arguments.get("list", False):
-        mutation_list()
-        sys.exit(0)
+        case ["list"]:
+            mutation_list()
 
-    if arguments.get("show", False):
-        mutation_show(arguments["MUTATION"])
-        sys.exit(0)
+        case ["show", uid]:
+            mutation_show(uid)
 
-    if arguments.get("apply", False):
-        mutation_apply(arguments["MUTATION"])
-        sys.exit(0)
+        case ["apply", uid]:
+            mutation_apply(uid)
 
-    if arguments.get("summary", False):
-        mutation_summary()
-        sys.exit(0)
+        case ["summary"]:
+            mutation_summary()
 
-    if arguments.get("gc", False):
-        mutation_ignored_gc(".")
-        sys.exit(0)
+        case ["gc"]:
+            mutation_ignored_gc(".")
 
-    # Otherwise run play.
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(play(loop, arguments))
-    loop.close()
+        case _:
+            print(__doc__)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
