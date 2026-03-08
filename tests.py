@@ -713,20 +713,21 @@ def test_mutation_ignored_gc_removes_stale(tmp_path):
 
 
 def test_mutation_ignored_gc_keeps_valid(tmp_path):
-    import difflib
+    from difflib import unified_diff
 
     py_file = tmp_path / "m.py"
     py_file.write_text("x = 1\n")
     source = stdlib_ast.unparse(stdlib_ast.parse("x = 1\n"))
-    diff_lines = list(
-        difflib.unified_diff(
-            source.splitlines(keepends=True),
-            "x = 2\n".splitlines(keepends=True),
+    target = stdlib_ast.unparse(stdlib_ast.parse("x = 2\n"))
+    diff_text = "\n".join(
+        unified_diff(
+            source.split("\n"),
+            target.split("\n"),
             fromfile="a/m.py",
             tofile="b/m.py",
+            lineterm="",
         )
     )
-    diff_text = "".join(diff_lines)
     write_ignored_file(str(tmp_path), diff_text, "m.py", "")
     mutation_ignored_gc(str(tmp_path))
     assert len(list((tmp_path / ".mutations.ignored").glob("*.diff"))) == 1
