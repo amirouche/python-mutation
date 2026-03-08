@@ -1392,7 +1392,7 @@ def iter_deltas(source, path, coverage, mutations):
                 continue
             delta = diff(canonical, target, path)
             yield delta
-    if ignored > 1:
+    if ignored > 0:
         msg = "Ignored {} mutations from file at {}"
         msg += " because there is no associated coverage."
         log.trace(msg, ignored, path)
