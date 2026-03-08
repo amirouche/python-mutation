@@ -1866,7 +1866,7 @@ async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
     if stale > 0:
         log.warning("Stale mutations (patch no longer applies): {}", stale)
     if errors > 0:
-        msg = "It took {} and there {} survivors!"
+        msg = "It took {} and there {} survivors 🧟"
         log.error(msg, humanize(delta()), errors)
     else:
         msg = "Checking that the test suite is strong against mutations took:"
