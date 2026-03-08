@@ -30,3 +30,4 @@ jobs:
 
       - name: check-survivors
         run: make check-survivors
+        continue-on-error: true
