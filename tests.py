@@ -232,7 +232,7 @@ def test_remove_unary_op():
     deltas = list(iter_deltas(source, "test.py", coverage, [RemoveUnaryOp()]))
     assert deltas
     mutated = [mutation_patch(d, canonical) for d in deltas]
-    assert any("not" not in m.split("def")[1] for m in mutated)
+    assert any("return x" in m for m in mutated)
 
 
 def test_mutate_identity():
