@@ -223,9 +223,9 @@ def patch(diff, source):
         if not m:
             raise Exception("Cannot process diff")
         i += 1
-        l = int(m.group(midx)) - 1 + (m.group(midx + 1) == "0")
-        t += "".join(s[sl:l])
-        sl = l
+        ln = int(m.group(midx)) - 1 + (m.group(midx + 1) == "0")
+        t += "".join(s[sl:ln])
+        sl = ln
         while i < len(p) and p[i][0] != "@":
             if i + 1 < len(p) and p[i + 1][0] == "\\":
                 line = p[i][:-1]
@@ -2028,7 +2028,7 @@ def mutation_ignored_gc(root):
     for ignore_file in ignored_dir.glob("*.diff"):
         content = ignore_file.read_text()
         # Strip header comment lines to isolate the diff
-        diff_lines = [l for l in content.splitlines(keepends=True) if not l.startswith("#")]
+        diff_lines = [line for line in content.splitlines(keepends=True) if not line.startswith("#")]
         diff_text = "".join(diff_lines).lstrip("\n")
         # Extract target path from "--- a/path/to/file.py"
         path = None
