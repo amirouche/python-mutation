@@ -151,10 +151,11 @@ def make_uid():
 
 
 class Progress:
-    def __init__(self, total, desc=""):
+    def __init__(self, total, desc="", delta=1):
         self.total = total
         self.desc = desc
         self.n = 0
+        self.delta = delta
 
     def __enter__(self):
         return self
@@ -165,7 +166,9 @@ class Progress:
 
     def update(self, n=1):
         self.n += n
-        print("\r{}: {}/{}".format(self.desc, self.n, self.total), end="", flush=True)
+        m = (self.total / self.delta) or 1
+        if self.n % m == 0:
+            print("\r{}: {}/{}".format(self.desc, self.n, self.total), flush=True)
 
 
 class _Logger:
@@ -216,10 +219,6 @@ _hdr_pat = re.compile(r"^@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@$")
 
 
 def patch(diff, source):
-    """Apply unified diff patch to string s to recover newer string.  If
-    revert is True, treat s as the newer string, recover older string.
-
-    """
     s = source.splitlines(True)
     p = diff.splitlines(True)
     t = ""
@@ -400,7 +399,7 @@ class Database:
         """Return uids in the replay queue: survived + not permanently dismissed."""
         return self._conn.execute(
             "SELECT uid FROM results "
-            "WHERE status IN (0, 1) "
+            "WHERE status IN (0, 1)"
             "AND (classification IS NULL OR classification NOT IN (?, ?))",
             (CLASSIFICATION_EQUIVALENT, CLASSIFICATION_WONT_FIX),
         ).fetchall()
@@ -1478,21 +1477,20 @@ def for_each_par_map(loop, pool, inc, proc, items):
     return out
 
 
-def mutation_pass(args):  # TODO: rename
+def mutation_is_survivor(args):
     command, uid, timeout = args
     # Check if this mutation was previously classified as equivalent
-    with database_open(".", timeout=timeout) as db:
+    with database_open(".") as db:
         _, diff_bytes = db.get_mutation(uid)
     diff_text = zlib.decompress(diff_bytes).decode("utf8")
     ignored_file = Path(".mutations.ignored") / "{}.diff".format(diff_hash(diff_text))
     if ignored_file.exists():
         log.debug("Skipping ignored mutation: {}", uid.hex())
-        with database_open(".", timeout=timeout) as db:
-            db.del_result(uid)
-        return True
+        return False, uid
     command = command + ["--mutation={}".format(uid.hex())]
     log.debug("Running command: {}", ' '.join(command))
     out = run(command, timeout=timeout, silent=True)
+    log.debug("Command exit code is: {}", out)
     if out == 4:
         # pytest exit code 4 = "command line usage error": --mutation flag was
         # not recognised, which means mutation.py is not loaded as a pytest
@@ -1505,17 +1503,11 @@ def mutation_pass(args):  # TODO: rename
             " ".join(command),
         )
         sys.exit(1)
+
     if out == 0:
-        msg = "no error with mutation: {} ({})"
-        log.trace(msg, " ".join(command), out)
-        with database_open(".", timeout=timeout) as db:
-            db.set_result(uid, 0)
-        return False
+        return uid, True
     else:
-        # TODO: pass root path...
-        with database_open(".", timeout=timeout) as db:
-            db.del_result(uid)
-        return True
+        return uid, False
 
 
 PYTEST = "python3 -m pytest -p mutation --exitfirst --no-header --tb=no --quiet --assert=plain"
@@ -1553,15 +1545,12 @@ def database_open(root, recreate=False, timeout=300):
 
     if not recreate and not db.exists():
         log.error("No database, can not proceed!")
-        sys.exit(1)
+        exit(1)
 
     return Database(str(db), timeout=timeout)
 
 
-def run(command, timeout=None, silent=True, verbose=False):
-    if timeout and timeout < 60:
-        timeout = 60
-
+def run(command, timeout, silent=True, verbose=False):
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     devnull = subprocess.DEVNULL if (silent and not verbose) else None
 
@@ -1636,8 +1625,8 @@ def check_tests(root, seed, arguments, command=None):
                 ]
             )
     else:
-        if arguments["PYTEST_EXTRA"]:
-            command = list(arguments["PYTEST_EXTRA"])
+        if arguments["PYTEST_BASE_COMMAND"]:
+            command = list(arguments["PYTEST_BASE_COMMAND"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -1666,7 +1655,7 @@ def check_tests(root, seed, arguments, command=None):
     verbose = arguments.get("--verbose", False)
 
     with timeit() as alpha:
-        out = run(command, verbose=verbose)
+        out = run(command, None, verbose=verbose)
 
     if out == 0:
         log.info("Tests are green 💚")
@@ -1677,8 +1666,8 @@ def check_tests(root, seed, arguments, command=None):
         log.warning("I tried the following command: `{}`", " ".join(command))
 
         # Same command without parallelization
-        if arguments["PYTEST_EXTRA"]:
-            command = list(arguments["PYTEST_EXTRA"])
+        if arguments["PYTEST_BASE_COMMAND"]:
+            command = list(arguments["PYTEST_BASE_COMMAND"])
         else:
             command = list(PYTEST)
             command.extend(arguments["<file-or-directory>"])
@@ -1694,7 +1683,7 @@ def check_tests(root, seed, arguments, command=None):
         ]
 
         with timeit() as alpha:
-            out = run(command, verbose=verbose)
+            out = run(command, 3600, verbose=verbose)
 
         if out != 0:
             msg = "Tests are definitly red! Return code is {}!!"
@@ -1773,7 +1762,7 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
     total = 0
 
     log.info("Crafting mutations from {} files...", len(items))
-    with Progress(total=len(items), desc="Files") as progress:
+    with Progress(total=len(items), desc="Files", delta=10) as progress:
 
         def on_mutations_created(items):
             nonlocal total
@@ -1781,7 +1770,8 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
             progress.update()
             total += len(items)
             rows = [(make_uid(), str(path), delta) for path, delta in items]
-            db.store_mutations(rows)
+            with Database(".mutation.db") as db:
+                db.store_mutations(rows)
 
         with timeit() as delta:
             with futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
@@ -1795,9 +1785,9 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
     return total
 
 
-async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
+async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
     # prepare to run tests against mutations
-    command = list(arguments["PYTEST_EXTRA"] or PYTEST)
+    command = list(arguments["PYTEST_BASE_COMMAND"] or PYTEST)
     command.append("--randomly-seed={}".format(seed))
     command.extend(arguments["<file-or-directory>"])
 
@@ -1805,7 +1795,8 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     log.info("Worst-case estimate (if every mutation takes the full test suite): {}", eta)
 
     timeout = alpha * 2
-    rows = db.list_mutations()
+    with database_open(".") as db:
+        rows = db.list_mutations()
     uids = ((command, uid, timeout) for (uid,) in rows)
 
     # sampling
@@ -1815,21 +1806,26 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
 
     log.info("Testing mutations in progress...")
 
-    with Progress(total=total, desc="Mutations") as progress:
+    with Progress(total=total, desc="Mutations", delta=10) as progress:
 
-        def on_progress(_):
+        def on_progress(args):
+            uid, is_survivor = args
             progress.update(1)
+            if is_survivor:
+                with database_open(Path('.')) as db:
+                    db.set_result(uid, 0)
 
         with timeit() as delta:
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
                 await pool_for_each_par_map(
-                    loop, pool, on_progress, mutation_pass, uids
+                    loop, pool, on_progress, mutation_is_survivor, uids
                 )
 
-    errors = db.count_results()
+    with database_open(".") as db:
+        errors = db.count_results()
 
     if errors > 0:
-        msg = "It took {} to compute {} mutation failures!"
+        msg = "It took {} and there {} survivors!"
         log.error(msg, humanize(delta()), errors)
     else:
         msg = "Checking that the test suite is strong against mutations took:"
@@ -1839,7 +1835,7 @@ async def play_mutations(loop, db, seed, alpha, total, max_workers, arguments):
     return errors
 
 
-async def play(loop, arguments):
+async def mutation_play(loop, arguments):
     root = Path(".")
 
     seed = arguments["--randomly-seed"] or int(time.time())
@@ -1848,29 +1844,31 @@ async def play(loop, arguments):
 
     alpha, max_workers = check_tests(root, seed, arguments)
 
-    with database_open(root, recreate=True) as db:
-        # store arguments used to execute command
-        if arguments["PYTEST_EXTRA"]:
-            command = list(arguments["PYTEST_EXTRA"])
-        else:
-            command = list(PYTEST)
-            command += arguments["<file-or-directory>"]
-        command = dict(
-            command=command,
-            seed=seed,
-        )
+    # store arguments used to execute command
+    if arguments["PYTEST_BASE_COMMAND"]:
+        command = list(arguments["PYTEST_BASE_COMMAND"])
+    else:
+        command = list(PYTEST)
+        command += arguments["<file-or-directory>"]
+    command = dict(
+        command=command,
+        seed=seed,
+    )
+    with database_open(".", True) as db:
         db.set_config("command", command)
 
-        # GC stale ignore files before generating new mutations
-        mutation_ignored_gc(root)
-        # let's create mutations!
-        count = await play_create_mutations(loop, root, db, max_workers, arguments)
-        # Let's run tests against mutations!
-        await play_mutations(loop, db, seed, alpha, count, max_workers, arguments)
+    # GC stale ignore files before generating new mutations
+    mutation_ignored_gc(root)
+    # let's create mutations!
+    count = await play_create_mutations(loop, root, db, max_workers, arguments)
+    # Let's run tests against mutations!
+    out = await mutation_exec(loop, seed, alpha, count, max_workers, arguments)
+    exit(0 if out == 0 else 1)
 
 
-def mutation_diff_size(db, uid):
-    _, diff = db.get_mutation(uid)
+def mutation_diff_size(uid):
+    with database_open(".") as db:
+        _, diff = db.get_mutation(uid)
     out = len(zlib.decompress(diff))
     return out
 
@@ -1892,9 +1890,7 @@ def write_ignored_file(root, diff_text, path, reason):
     return h
 
 
-def replay_mutation(db, uid, alpha, seed, max_workers, command):
-    log.info("* You can use Ctrl+C to exit at anytime, your progress is saved.")
-
+def replay_mutation(uid, alpha, seed, max_workers, command):
     command = list(command)
     command.append("--randomly-seed={}".format(seed))
     max_workers = 1
@@ -1903,12 +1899,15 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
     timeout = alpha * 2
 
     while True:
-        ok = mutation_pass((command, uid, timeout))
-        if ok:
+        uid, is_survivor = mutation_is_survivor((command, uid, timeout))
+        if not is_survivor:
+            with database_open(".") as db:
+                db.del_result(uid)
             # Mutation now caught — green
             return None
 
         # Mutation still survives — show diff and classification menu
+        log.info("* You can use Ctrl+C to exit at anytime, your progress is saved.")
         mutation_show(uid.hex())
         log.info("")
         log.info("  [r] Replay        — re-run this mutation against current test suite")
@@ -1924,28 +1923,34 @@ def replay_mutation(db, uid, alpha, seed, max_workers, command):
         if choice == "r":
             continue
         elif choice == "1":
-            db.set_classification(uid, CLASSIFICATION_REAL_GAP)
+            with database_open(".") as db:
+                db.set_classification(uid, CLASSIFICATION_REAL_GAP)
             return None
         elif choice == "2":
-            db.set_classification(uid, CLASSIFICATION_FRAGILE)
+            with database_open(".") as db:
+                db.set_classification(uid, CLASSIFICATION_FRAGILE)
             return None
         elif choice == "3":
             reason = input("Optional one-line reason (or Enter to skip): ").strip()
-            path, diff_bytes = db.get_mutation(uid)
+            with database_open(".") as db:
+                path, diff_bytes = db.get_mutation(uid)
             diff = zlib.decompress(diff_bytes).decode("utf8")
             write_ignored_file(".", diff, path, reason)
-            db.set_classification(uid, CLASSIFICATION_EQUIVALENT)
+            with database_open(".") as db:
+                db.set_classification(uid, CLASSIFICATION_EQUIVALENT)
             return None
         elif choice == "4":
-            db.set_classification(uid, CLASSIFICATION_WONT_FIX)
+            with database_open(".") as db:
+                db.set_classification(uid, CLASSIFICATION_WONT_FIX)
             return None
         elif choice == "5":
-            db.set_classification(uid, CLASSIFICATION_TODO)
+            with database_open(".") as db:
+                db.set_classification(uid, CLASSIFICATION_TODO)
             return None
         elif choice == "s":
             return "skip"   # caller appends uid to back of queue
         elif choice == "q":
-            sys.exit(0)
+            exit(0)
         # else: invalid input — loop back to menu
 
 
@@ -1963,18 +1968,19 @@ def replay(arguments):
 
     with database_open(root) as db:
         while True:
-            uids = [uid for (uid,) in db.list_results_for_replay()]
+            with database_open(root) as db:
+                uids = [uid for (uid,) in db.list_results_for_replay()]
             uids = sorted(
                 uids,
-                key=functools.partial(mutation_diff_size, db),
+                key=mutation_diff_size,
                 reverse=True,
             )
             if not uids:
                 log.info("No mutation failures 👍")
-                sys.exit(0)
+                exit(0)
             while uids:
                 uid = uids.pop(0)
-                result = replay_mutation(db, uid, alpha, seed, max_workers, command)
+                result = replay_mutation(uid, alpha, seed, max_workers, command)
                 if result == "skip":
                     uids.append(uid)
 
@@ -1982,7 +1988,7 @@ def replay(arguments):
 def mutation_list():
     with database_open(".") as db:
         uids = db.list_results()
-        uids = sorted(uids, key=lambda x: mutation_diff_size(db, x[0]), reverse=True)
+        uids = sorted(uids, key=lambda x: mutation_diff_size(x[0]), reverse=True)
     if not uids:
         log.info("No mutation failures 👍")
         sys.exit(0)
@@ -2139,10 +2145,10 @@ def main():
 
     if kw.get("-h") or kw.get("--help"):
         print(__doc__)
-        sys.exit(0)
+        exit(0)
     if kw.get("--version"):
         print(".".join(str(x) for x in __version__))
-        sys.exit(0)
+        exit(0)
 
     verbose = kw.get("--verbose", False)
     if verbose:
@@ -2153,8 +2159,8 @@ def main():
     match standalone:
         case ["play", *files]:
             if files and extra:
-                log.error("<file-or-directory> and PYTEST_EXTRA are exclusive!")
-                sys.exit(1)
+                log.error("<file-or-directory> and PYTEST_BASE_COMMAND are exclusive!")
+                exit(1)
             arguments = {
                 "--verbose": verbose,
                 "--include": kw.get("--include"),
@@ -2165,11 +2171,11 @@ def main():
                 "--randomly-seed": kw.get("--randomly-seed"),
                 "--max-workers": kw.get("--max-workers"),
                 "<file-or-directory>": files,
-                "PYTEST_EXTRA": extra,
+                "PYTEST_BASE_COMMAND": extra,
             }
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(play(loop, arguments))
+            loop.run_until_complete(mutation_play(loop, arguments))
             loop.close()
 
         case ["replay"]:
@@ -2196,7 +2202,7 @@ def main():
 
         case _:
             print(__doc__)
-            sys.exit(1)
+            exit(1)
 
 
 if __name__ == "__main__":
