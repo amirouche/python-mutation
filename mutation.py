@@ -524,6 +524,18 @@ class MutateNumber(metaclass=Mutation):
             yield tree_copy, node_copy
 
 
+def _is_docstring(node, tree):
+    """Return True if node is a module/class/function docstring constant."""
+    parent, _, idx = get_parent_field_idx(tree, node)
+    if not isinstance(parent, ast.Expr) or idx is not None:
+        return False
+    expr_parent, _, expr_idx = get_parent_field_idx(tree, parent)
+    return (
+        expr_idx == 0
+        and isinstance(expr_parent, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    )
+
+
 class MutateString(metaclass=Mutation):
     """Prepend a fixed prefix to a string or bytes literal, verifying that callers check the actual content."""
 
@@ -531,6 +543,8 @@ class MutateString(metaclass=Mutation):
         return isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes))
 
     def mutate(self, node, index, tree):
+        if _is_docstring(node, tree):
+            return
         tree_copy, node_copy = copy_tree_at(tree, index)
         if isinstance(node_copy.value, bytes):
             node_copy.value = b"coffeebad" + node_copy.value

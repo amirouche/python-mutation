@@ -473,6 +473,27 @@ def test_mutate_number():
         assert "return 100" not in m
 
 
+def test_mutate_string_skips_docstrings():
+    # Module, function, and class docstrings must not be mutated
+    source = (
+        '"""module doc"""\n'
+        "class C:\n"
+        '    """class doc"""\n'
+        "    def m(self):\n"
+        '        """method doc"""\n'
+        "        return 'payload'\n"
+    )
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateString()]))
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    # Only 'payload' should be mutated, never any docstring
+    assert all("mutated string module doc" not in m for m in mutated)
+    assert all("mutated string class doc" not in m for m in mutated)
+    assert all("mutated string method doc" not in m for m in mutated)
+    assert any("mutated string payload" in m for m in mutated)
+
+
 def test_mutate_string():
     source = "def f():\n    return 'hello'\n"
     canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
