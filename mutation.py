@@ -75,37 +75,40 @@ CLASSIFICATION_TODO      = 5
 
 
 def humanize(seconds):
-    parts = []
-    if seconds >= DAY:
-        d = int(seconds // DAY)
-        parts.append("{} day{}".format(d, "s" if d != 1 else ""))
-        seconds %= DAY
-    if seconds >= HOUR:
-        h = int(seconds // HOUR)
-        parts.append("{} hour{}".format(h, "s" if h != 1 else ""))
-        seconds %= HOUR
-    if seconds >= MINUTE:
-        m = int(seconds // MINUTE)
-        parts.append("{} minute{}".format(m, "s" if m != 1 else ""))
-        seconds %= MINUTE
-    if not parts or seconds >= 1:
-        s = int(seconds)
-        parts.append("{} second{}".format(s, "s" if s != 1 else ""))
-    return " ".join(parts)
+    if seconds < 60:
+        return "{} seconds".format(int(seconds))
+    elif seconds < HOUR:
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        if secs:
+            return "{} minutes {} seconds".format(mins, secs)
+        return "{} minutes".format(mins)
+    elif seconds < DAY:
+        hrs = int(seconds // HOUR)
+        mins = int((seconds % HOUR) // 60)
+        if mins:
+            return "{} hours {} minutes".format(hrs, mins)
+        return "{} hours".format(hrs)
+    else:
+        days = int(seconds // DAY)
+        hrs = int((seconds % DAY) // HOUR)
+        if hrs:
+            return "{} days {} hours".format(days, hrs)
+        return "{} days".format(days)
 
 
-def green(text):
-    return "\033[1;32m" + text + "\033[0m"
+def green(s):
+    return "\033[1;32m" + s + "\033[0m"
 
 
-def red(text):
-    return "\033[1;31m" + text + "\033[0m"
+def red(s):
+    return "\033[1;31m" + s + "\033[0m"
 
 
 def make_uid():
-    ts = int(time.time() * 1e6).to_bytes(8, "big")
-    rand = os.urandom(8)
-    return ts + rand
+    ts = (time.time_ns() // 1_000_000).to_bytes(6, "big")  # milliseconds, ~year 10889
+    rand = os.urandom(10)
+    return ts + rand  # 16 bytes, time-sortable
 
 
 class Progress:
@@ -127,6 +130,8 @@ class Progress:
 
 
 class _Logger:
+    """Thin shim matching the loguru call sites in this file."""
+
     TRACE = 5
 
     def __init__(self):
@@ -138,7 +143,7 @@ class _Logger:
         self._log.setLevel(logging.INFO)
 
     def remove(self):
-        pass
+        pass  # loguru compat
 
     def add(self, stream, *, format=None, level="INFO", colorize=False, enqueue=False):
         numeric = getattr(logging, level, self.TRACE)
@@ -159,12 +164,12 @@ class _Logger:
 
 log = _Logger()
 
-
-MUTATION = "https://youtu.be/ihZEaj9ml4w?list=PLOSNaPJYYhrtliZqyEWDWL0oqeH0hOHnj"
-
+MUTATION = "https://youtu.be/ihZEaj9ml4w"
 
 if os.environ.get("DEBUG", False):
     log.add(sys.stdout, level="TRACE")
+else:
+    log.add(sys.stdout, level="INFO")
 
 
 # The function patch was taken somewhere over the rainbow...
@@ -1368,10 +1373,10 @@ def mutation_create(item):
 
 
 def install_module_loader(uid):
-    mutation_show(uid.hex())
+    mutation_show(uid)
 
     with Database(".mutation.db") as db:
-        path, diff = db.get_mutation(uid)
+        path, diff = db.get_mutation(bytes.fromhex(uid))
     diff = zlib.decompress(diff).decode("utf8")
 
     with open(path) as f:
@@ -1415,8 +1420,7 @@ def install_module_loader(uid):
 def pytest_configure(config):
     mutation = config.getoption("mutation", default=None)
     if mutation is not None:
-        uid = bytes.fromhex(mutation)
-        install_module_loader(uid)
+        install_module_loader(mutation)
 
 
 def pytest_addoption(parser, pluginmanager):
@@ -1741,7 +1745,6 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
 
             progress.update()
             total += len(items)
-            # TODO: replace ULID with a content addressable hash.
             rows = [(make_uid(), str(path), delta) for path, delta in items]
             db.store_mutations(rows)
 
@@ -2021,11 +2024,10 @@ def mutation_ignored_gc(root):
 
 
 def mutation_show(uid):
-    uid = bytes.fromhex(uid)
-    log.info("mutation show {}", uid.hex())
+    log.info("mutation show {}", uid)
     log.info("")
     with database_open(".") as db:
-        path, diff = db.get_mutation(uid)
+        path, diff = db.get_mutation(bytes.fromhex(uid))
     diff = zlib.decompress(diff).decode("utf8")
 
     for line in diff.split("\n"):
@@ -2042,9 +2044,8 @@ def mutation_show(uid):
 
 
 def mutation_apply(uid):
-    uid = bytes.fromhex(uid)
     with database_open(".") as db:
-        path, diff = db.get_mutation(uid)
+        path, diff = db.get_mutation(bytes.fromhex(uid))
     diff = zlib.decompress(diff).decode("utf8")
 
     with open(path, "r") as f:
@@ -2058,7 +2059,6 @@ def main():
     arguments = docopt(__doc__, version=__version__)
 
     if arguments.get("--verbose", False):
-        log.remove()
         log.add(sys.stdout, level="DEBUG")
 
     log.debug("Mutation at {}", MUTATION)
