@@ -74,6 +74,36 @@ CLASSIFICATION_WONT_FIX  = 4
 CLASSIFICATION_TODO      = 5
 
 
+def cli_read(arguments):
+    """Parse a list of argument strings into (keywords, standalone, extra).
+
+    - Arguments starting with '-' become keyword pairs: '--key=val' → ('--key', 'val'),
+      bare flags like '--qux' or '-v' → ('--qux', True).
+    - Positional arguments (not starting with '-') go into standalone.
+    - The sentinel '--' ends keyword/standalone parsing; everything after is extra.
+
+    Returns:
+        (keywords, standalone, extra)
+        keywords  : list of (str, str | bool) tuples, in order
+        standalone: list of str, in order
+        extra     : list of str after '--', or [] if '--' was absent
+    """
+    keywords = []
+    standalone = []
+    for i, arg in enumerate(arguments):
+        if arg == "--":
+            return (keywords, standalone, list(arguments[i + 1:]))
+        if arg.startswith("-"):
+            eq = arg.find("=")
+            if eq == -1:
+                keywords.append((arg, True))
+            else:
+                keywords.append((arg[:eq], arg[eq + 1:]))
+        else:
+            standalone.append(arg)
+    return (keywords, standalone, [])
+
+
 def humanize(seconds):
     if seconds < 60:
         return "{} seconds".format(int(seconds))
