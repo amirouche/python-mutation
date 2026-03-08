@@ -784,9 +784,6 @@ class ForceConditional(metaclass=Mutation):
             yield tree_copy, node_copy
 
 
-class MutateExceptionHandler(metaclass=Mutation):
-    """Replace the specific exception type in an except clause with the generic Exception, verifying that the handler is tested for the right error kind."""
-
     def predicate(self, node):
         return isinstance(node, ast.ExceptHandler) and node.type is not None
 
