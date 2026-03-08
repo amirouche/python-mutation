@@ -67,7 +67,7 @@ from pathlib import Path
 
 from coverage import Coverage
 
-__version__ = (0, 5, 6)
+__version__ = (0, 6, 0)
 
 
 MINUTE = 60  # seconds
