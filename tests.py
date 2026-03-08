@@ -421,11 +421,12 @@ def test_no_syntax_error_mutations_empty_class_body():
     """DefinitionDrop on the sole method of a class produces an empty class
     body, which is a SyntaxError.  iter_deltas must not yield such deltas."""
     source = "class Foo:\n    def bar(self):\n        pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
     coverage = _full_coverage(source)
 
     bad = []
     for delta in iter_deltas(source, "test.py", coverage, list(Mutation.ALL)):
-        mutated = mutation_patch(delta, source)
+        mutated = mutation_patch(delta, canonical)
         try:
             stdlib_ast.parse(mutated)
         except SyntaxError:
@@ -446,11 +447,12 @@ def test_no_syntax_error_mutations_docstring():
         '    """Function docstring."""\n'
         "    return a - 2\n"
     )
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
     coverage = _full_coverage(source)
 
     bad = []
     for delta in iter_deltas(source, "test.py", coverage, list(Mutation.ALL)):
-        mutated = mutation_patch(delta, source)
+        mutated = mutation_patch(delta, canonical)
         try:
             stdlib_ast.parse(mutated)
         except SyntaxError:
