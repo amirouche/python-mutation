@@ -9,6 +9,7 @@ lock:
 check:
 	uv run pytest tests.py
 
+
 check-with-coverage:
 	uv run pytest --cov=foobar --cov-report=html tests.py
 
