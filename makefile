@@ -8,6 +8,7 @@ lock:
 
 check:
 	uv run pytest tests.py
+	ruff check $(MAIN)
 
 check-with-coverage:
 	uv run pytest --cov=mutations.py --cov-report=html tests.py
@@ -19,7 +20,8 @@ check-survivors:
 	uv run python3 mutation.py play foobar/test.py --include="foobar/ex.py"
 
 lint: ## Lint the code
-	ruff check $(MAIN)
+	ruff format $(MAIN)
+	ruff check --fix $(MAIN)
 
 doc: ## Build the documentation
 	cd doc && make html
@@ -41,8 +43,6 @@ lock: ## Lock dependencies
 	uv export --no-dev --no-hashes -o requirements.txt
 	uv export --only-dev --no-hashes -o requirements.dev.txt
 
-wip: ## clean up code, and commit wip
-	ruff format $(MAIN)
-	ruff check --fix $(MAIN)
+wip: lint ## clean up code, and commit wip
 	git add .
 	git commit -m "wip"
