@@ -43,7 +43,6 @@ Options:
 import ast
 import asyncio
 import fnmatch
-import functools
 import hashlib
 import itertools
 import json
@@ -81,6 +80,9 @@ CLASSIFICATION_FRAGILE   = 2
 CLASSIFICATION_EQUIVALENT = 3
 CLASSIFICATION_WONT_FIX  = 4
 CLASSIFICATION_TODO      = 5
+CLASSIFICATION_STALE     = 6
+
+EXIT_STALE = 5  # pytest exit code: mutation patch does not apply to current source
 
 
 def cli_read(arguments):
@@ -384,7 +386,16 @@ class Database:
         ).fetchall()
 
     def count_results(self):
-        return self._conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM results WHERE classification IS NULL OR classification != ?",
+            (CLASSIFICATION_STALE,),
+        ).fetchone()[0]
+
+    def count_stale(self):
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM results WHERE classification = ?",
+            (CLASSIFICATION_STALE,),
+        ).fetchone()[0]
 
     def count_mutations(self):
         return self._conn.execute("SELECT COUNT(*) FROM mutations").fetchone()[0]
@@ -399,9 +410,9 @@ class Database:
         """Return uids in the replay queue: survived + not permanently dismissed."""
         return self._conn.execute(
             "SELECT uid FROM results "
-            "WHERE status IN (0, 1)"
-            "AND (classification IS NULL OR classification NOT IN (?, ?))",
-            (CLASSIFICATION_EQUIVALENT, CLASSIFICATION_WONT_FIX),
+            "WHERE status IN (0, 1) "
+            "AND (classification IS NULL OR classification NOT IN (?, ?, ?))",
+            (CLASSIFICATION_EQUIVALENT, CLASSIFICATION_WONT_FIX, CLASSIFICATION_STALE),
         ).fetchall()
 
     def get_classification_counts(self):
@@ -1458,7 +1469,10 @@ def install_module_loader(uid):
 def pytest_configure(config):
     mutation = config.getoption("mutation", default=None)
     if mutation is not None:
-        install_module_loader(mutation)
+        try:
+            install_module_loader(mutation)
+        except Exception:
+            sys.exit(EXIT_STALE)
 
 
 def pytest_addoption(parser, pluginmanager):
@@ -1491,6 +1505,9 @@ def mutation_is_survivor(args):
     log.debug("Running command: {}", ' '.join(command))
     out = run(command, timeout=timeout, silent=True)
     log.debug("Command exit code is: {}", out)
+    if out == EXIT_STALE:
+        log.debug("Stale mutation (patch does not apply): {}", uid.hex())
+        return uid, None
     if out == 4:
         # pytest exit code 4 = "command line usage error": --mutation flag was
         # not recognised, which means mutation.py is not loaded as a pytest
@@ -1811,9 +1828,13 @@ async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
         def on_progress(args):
             uid, is_survivor = args
             progress.update(1)
-            if is_survivor:
+            if is_survivor is True:
                 with database_open(Path('.')) as db:
                     db.set_result(uid, 0)
+            elif is_survivor is None:
+                with database_open(Path('.')) as db:
+                    db.set_result(uid, 0)
+                    db.set_classification(uid, CLASSIFICATION_STALE)
 
         with timeit() as delta:
             with futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -1823,7 +1844,10 @@ async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
 
     with database_open(".") as db:
         errors = db.count_results()
+        stale = db.count_stale()
 
+    if stale > 0:
+        log.warning("Stale mutations (patch no longer applies): {}", stale)
     if errors > 0:
         msg = "It took {} and there {} survivors!"
         log.error(msg, humanize(delta()), errors)
@@ -1837,6 +1861,12 @@ async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
 
 async def mutation_play(loop, arguments):
     root = Path(".")
+
+    # Always start fresh: delete the database (but keep .mutations.ignored)
+    db_path = root / ".mutation.db"
+    if db_path.exists():
+        for file in root.glob(".mutation.db*"):
+            file.unlink()
 
     seed = arguments["--randomly-seed"] or int(time.time())
     log.info("Using random seed: {}".format(seed))
@@ -1854,7 +1884,7 @@ async def mutation_play(loop, arguments):
         command=command,
         seed=seed,
     )
-    with database_open(".", True) as db:
+    with database_open(".", recreate=True) as db:
         db.set_config("command", command)
 
     # GC stale ignore files before generating new mutations
@@ -1900,6 +1930,11 @@ def replay_mutation(uid, alpha, seed, max_workers, command):
 
     while True:
         uid, is_survivor = mutation_is_survivor((command, uid, timeout))
+        if is_survivor is None:
+            with database_open(".") as db:
+                db.set_classification(uid, CLASSIFICATION_STALE)
+            log.info("Mutation {} is stale (patch no longer applies), skipping.", uid.hex())
+            return None
         if not is_survivor:
             with database_open(".") as db:
                 db.del_result(uid)
@@ -2000,9 +2035,10 @@ def mutation_summary():
     with database_open(root) as db:
         total_mutations = db.count_mutations()
         total_results = db.count_results()
+        stale = db.count_stale()
         counts = db.get_classification_counts()
 
-    killed = total_mutations - total_results
+    killed = total_mutations - total_results - stale
 
     unreviewed  = counts.get(None, 0) + counts.get(1, 0)  # None + old status=1 skip
     real_gaps   = counts.get(CLASSIFICATION_REAL_GAP, 0)
@@ -2012,12 +2048,13 @@ def mutation_summary():
     todo        = counts.get(CLASSIFICATION_TODO, 0)
 
     survived = total_results
-    tested   = total_mutations
+    tested   = total_mutations - stale
 
     ignored_dir = root / ".mutations.ignored"
     ignored_files = len(list(ignored_dir.glob("*.diff"))) if ignored_dir.exists() else 0
 
     log.info("Mutations generated:  {:>6,}".format(total_mutations))
+    log.info("Stale:                {:>6,}".format(stale))
     log.info("Tested:               {:>6,}".format(tested))
     log.info("Killed:               {:>6,}".format(killed))
     log.info("Survived:             {:>6,}".format(survived))
