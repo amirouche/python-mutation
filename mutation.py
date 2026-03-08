@@ -16,7 +16,10 @@ Usage:
   mutation list
   mutation show MUTATION
   mutation apply MUTATION
-  mutation summary
+  mutation summary [--json]
+  mutation survivors [--json]
+  mutation inspect MUTATION [--json] [--context=<n>]
+  mutation classify MUTATION CATEGORY [--reason=<text>] [--json]
   mutation gc
   mutation (-h | --help)
   mutation --version
@@ -37,6 +40,9 @@ Options:
                                  paths are intentionally untested or produce too much noise).
   --max-workers=<n>          Number of parallel workers [default: cpu_count - 1]
   --verbose                  Show more information.
+  --json                     Output JSON instead of human-readable text.
+  --context=<n>              Lines of source context around the mutation [default: 10].
+  --reason=<text>            Reason for equivalent classification.
   -h --help                  Show this screen.
   --version                  Show version.
 """
@@ -2158,7 +2164,7 @@ def mutation_list():
     for uid, status in uids:
         log.info("{}\t{}".format(uid.hex(), "skipped" if status == 1 else ""))
 
-def mutation_summary():
+def mutation_summary(json_output=False):
     root = Path(".")
     with database_open(root) as db:
         total_mutations = db.count_mutations()
@@ -2181,6 +2187,25 @@ def mutation_summary():
     ignored_dir = root / ".mutations.ignored"
     ignored_files = len(list(ignored_dir.glob("*.diff"))) if ignored_dir.exists() else 0
 
+    if json_output:
+        print(json.dumps({
+            "generated": total_mutations,
+            "stale": stale,
+            "tested": tested,
+            "killed": killed,
+            "survived": survived,
+            "classifications": {
+                "real_gap": real_gaps,
+                "fragile": fragile,
+                "equivalent": equivalent,
+                "wont_fix": wont_fix,
+                "todo": todo,
+                "unreviewed": unreviewed,
+            },
+            "ignored_files": ignored_files,
+        }))
+        return
+
     log.info("Mutations generated:  {:>6,}".format(total_mutations))
     log.info("Stale:                {:>6,}".format(stale))
     log.info("Tested:               {:>6,}".format(tested))
@@ -2195,6 +2220,145 @@ def mutation_summary():
     log.info("  — Todo:             {:>6,}".format(todo))
     log.info("  — Unreviewed:       {:>6,}".format(unreviewed))
     log.info("Ignored:              {:>6,}".format(ignored_files))
+
+
+CATEGORIES = {
+    "real_gap":   CLASSIFICATION_REAL_GAP,
+    "fragile":    CLASSIFICATION_FRAGILE,
+    "equivalent": CLASSIFICATION_EQUIVALENT,
+    "wont_fix":   CLASSIFICATION_WONT_FIX,
+    "todo":       CLASSIFICATION_TODO,
+}
+
+
+def mutation_survivors(json_output=False):
+    with database_open(".") as db:
+        uids = [uid for (uid,) in db.list_results_for_replay()]
+    uids = sorted(uids, key=mutation_diff_size, reverse=True)
+    if json_output:
+        survivors = []
+        for uid in uids:
+            with database_open(".") as db:
+                path, diff_bytes = db.get_mutation(uid)
+            diff_size = len(zlib.decompress(diff_bytes))
+            survivors.append({"uid": uid.hex(), "path": path, "diff_size": diff_size})
+        print(json.dumps({"count": len(survivors), "survivors": survivors}))
+    else:
+        if not uids:
+            log.info("No unreviewed survivors.")
+            return
+        for uid in uids:
+            with database_open(".") as db:
+                path, _ = db.get_mutation(uid)
+            log.info("{}\t{}", uid.hex(), path)
+
+
+def mutation_inspect(uid_hex, json_output=False, context_lines=10):
+    uid_bytes = bytes.fromhex(uid_hex)
+    with database_open(".") as db:
+        path, diff_bytes = db.get_mutation(uid_bytes)
+        conn_row = db._conn.execute(
+            "SELECT status, classification FROM results WHERE uid = ?", (uid_bytes,)
+        ).fetchone()
+    diff_text = zlib.decompress(diff_bytes).decode("utf8")
+
+    # Extract line number from the first @@ hunk header
+    line_number = None
+    for line in diff_text.splitlines():
+        m = _hdr_pat.match(line.rstrip("\n"))
+        if m:
+            line_number = int(m.group(1))
+            break
+
+    # Read source context
+    source_context = None
+    if line_number is not None:
+        try:
+            with open(path) as f:
+                all_lines = f.readlines()
+            start = max(0, line_number - 1 - context_lines)
+            end = min(len(all_lines), line_number - 1 + context_lines)
+            source_context = {
+                "start_line": start + 1,
+                "end_line": end,
+                "lines": all_lines[start:end],
+            }
+        except OSError:
+            pass
+
+    # Get classification and status
+    classification = None
+    status_str = "unknown"
+    if conn_row is not None:
+        status_int, cls_int = conn_row
+        status_str = "survived" if status_int == 0 else "skipped"
+        if cls_int is not None:
+            for name, val in CATEGORIES.items():
+                if val == cls_int:
+                    classification = name
+                    break
+            if classification is None and cls_int == CLASSIFICATION_STALE:
+                classification = "stale"
+
+    if json_output:
+        print(json.dumps({
+            "uid": uid_hex,
+            "path": path,
+            "diff": diff_text,
+            "line": line_number,
+            "source_context": source_context,
+            "classification": classification,
+            "status": status_str,
+        }))
+    else:
+        log.info("uid:  {}", uid_hex)
+        log.info("path: {}", path)
+        log.info("status: {}  classification: {}", status_str, classification)
+        log.info("")
+        for line in diff_text.split("\n"):
+            if line.startswith("+++"):
+                log.info(green("+++") + line[3:])
+            elif line.startswith("---"):
+                log.info(red("---") + line[3:])
+            elif line.startswith("+"):
+                log.info(green("+") + line[1:])
+            elif line.startswith("-"):
+                log.info(red("-") + line[1:])
+            else:
+                log.info(line)
+        if source_context:
+            log.info("")
+            log.info(
+                "Source context (lines {}-{}):",
+                source_context["start_line"],
+                source_context["end_line"],
+            )
+            for i, src_line in enumerate(source_context["lines"], source_context["start_line"]):
+                log.info("{:4d} {}", i, src_line.rstrip("\n"))
+
+
+def mutation_classify(uid_hex, category, reason="", json_output=False):
+    if category not in CATEGORIES:
+        log.error(
+            "Unknown category '{}'. Valid: {}", category, ", ".join(CATEGORIES)
+        )
+        sys.exit(1)
+    uid_bytes = bytes.fromhex(uid_hex)
+    cls = CATEGORIES[category]
+
+    if category == "equivalent":
+        with database_open(".") as db:
+            path, diff_bytes = db.get_mutation(uid_bytes)
+        diff_text = zlib.decompress(diff_bytes).decode("utf8")
+        write_ignored_file(".", diff_text, path, reason)
+
+    with database_open(".") as db:
+        db.set_classification(uid_bytes, cls)
+
+    if json_output:
+        print(json.dumps({"uid": uid_hex, "category": category}))
+    else:
+        log.info("classified {} as {}", uid_hex, category)
 
 
 _NO_NEWLINE_MARKER = "\\ No newline at end of file"
@@ -2373,7 +2537,22 @@ def main():
             mutation_apply(uid)
 
         case ["summary"]:
-            mutation_summary()
+            mutation_summary(json_output=kw.get("--json", False))
+
+        case ["survivors"]:
+            mutation_survivors(json_output=kw.get("--json", False))
+
+        case ["inspect", uid]:
+            context_lines = int(kw.get("--context", 10))
+            mutation_inspect(uid, json_output=kw.get("--json", False), context_lines=context_lines)
+
+        case ["classify", uid, category]:
+            mutation_classify(
+                uid,
+                category,
+                reason=kw.get("--reason", ""),
+                json_output=kw.get("--json", False),
+            )
 
         case ["gc"]:
             mutation_ignored_gc(".")
