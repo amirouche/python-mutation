@@ -8,7 +8,7 @@ lock:
 
 check:
 	uv run pytest tests.py
-	ruff check $(MAIN)
+	uv run ruff check $(MAIN)
 
 check-with-coverage:
 	uv run pytest --cov=mutations.py --cov-report=html tests.py
@@ -20,8 +20,8 @@ check-survivors:
 	uv run python3 mutation.py play foobar/test.py --include="foobar/ex.py"
 
 lint: ## Lint the code
-	ruff format $(MAIN)
-	ruff check --fix $(MAIN)
+	uv run ruff format $(MAIN)
+	uv run ruff check --fix $(MAIN)
 
 doc: ## Build the documentation
 	cd doc && make html
