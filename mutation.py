@@ -1431,7 +1431,10 @@ def install_module_loader(uid):
     with open(path) as f:
         source = f.read()
 
-    patched = patch(diff, ast.unparse(ast.parse(source)))
+    canonical = ast.unparse(ast.parse(source))
+    if not _diff_applies(diff, canonical):
+        raise Exception("Stale mutation: diff does not apply to current source")
+    patched = patch(diff, canonical)
 
     # Derive the importable module name by finding which sys.path entry
     # contains this file.  For src/ layouts (e.g. src/mypkg/__init__.py)
