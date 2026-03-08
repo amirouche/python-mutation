@@ -301,7 +301,6 @@ def test_mutate_nonlocal():
 def test_mutate_global_only_statement_skipped():
     # sole statement in body — removing it would produce empty body → skipped
     source = "x = 0\ndef f():\n    global x\n"
-    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
     coverage = _full_coverage(source)
     deltas = list(iter_deltas(source, "test.py", coverage, [MutateGlobal()]))
     assert not deltas
@@ -386,7 +385,6 @@ def test_mutate_iterator():
 
 def test_mutate_iterator_no_double_wrap():
     source = "def f(items):\n    for x in reversed(items):\n        pass\n"
-    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
     coverage = _full_coverage(source)
     deltas = list(iter_deltas(source, "test.py", coverage, [MutateIterator()]))
     assert not deltas
@@ -671,33 +669,38 @@ def test_write_ignored_file_no_reason(tmp_path):
 
 def test_database_count_mutations(tmp_path):
     db, uid, _ = _make_db(tmp_path)
-    assert db.count_mutations() == 1
+    with db:
+        assert db.count_mutations() == 1
 
 
 def test_database_set_classification(tmp_path):
     db, uid, _ = _make_db(tmp_path)
-    db.set_classification(uid, CLASSIFICATION_REAL_GAP)
-    counts = db.get_classification_counts()
+    with db:
+        db.set_classification(uid, CLASSIFICATION_REAL_GAP)
+        counts = db.get_classification_counts()
     assert counts[CLASSIFICATION_REAL_GAP] == 1
 
 
 def test_database_list_results_for_replay_unclassified(tmp_path):
     db, uid, _ = _make_db(tmp_path)
-    rows = db.list_results_for_replay()
+    with db:
+        rows = db.list_results_for_replay()
     assert any(r[0] == uid for r in rows)
 
 
 def test_database_list_results_for_replay_wont_fix_excluded(tmp_path):
     db, uid, _ = _make_db(tmp_path)
-    db.set_classification(uid, CLASSIFICATION_WONT_FIX)
-    rows = db.list_results_for_replay()
+    with db:
+        db.set_classification(uid, CLASSIFICATION_WONT_FIX)
+        rows = db.list_results_for_replay()
     assert not any(r[0] == uid for r in rows)
 
 
 def test_database_list_results_for_replay_equivalent_excluded(tmp_path):
     db, uid, _ = _make_db(tmp_path)
-    db.set_classification(uid, CLASSIFICATION_EQUIVALENT)
-    rows = db.list_results_for_replay()
+    with db:
+        db.set_classification(uid, CLASSIFICATION_EQUIVALENT)
+        rows = db.list_results_for_replay()
     assert not any(r[0] == uid for r in rows)
 
 
@@ -740,7 +743,16 @@ def test_mutation_ignored_gc_no_dir(tmp_path):
 def test_cli_read_keywords_standalone_extra():
     # ~check-cli-00: full form with '--' separator
     keywords, standalone, extra = cli_read(
-        ["--foo=bar", "--qux", "-vvv", "positional", "arguments", "--", "olive", "extra"]
+        [
+            "--foo=bar",
+            "--qux",
+            "-vvv",
+            "positional",
+            "arguments",
+            "--",
+            "olive",
+            "extra",
+        ]
     )
     assert keywords == [("--foo", "bar"), ("--qux", True), ("-vvv", True)]
     assert standalone == ["positional", "arguments"]
@@ -831,7 +843,6 @@ def test_statement_drop():
 def test_statement_drop_skips_pass_and_expr():
     # pass, bare expressions, and def/class nodes should not be dropped
     source = "def f():\n    pass\n"
-    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
     coverage = _full_coverage(source)
     deltas = list(iter_deltas(source, "test.py", coverage, [StatementDrop()]))
     assert not deltas
@@ -851,7 +862,6 @@ def test_definition_drop():
 def test_definition_drop_sole_definition_skipped():
     # Only one definition in body — removing it would leave an empty body.
     source = "def f(): pass\n"
-    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
     coverage = _full_coverage(source)
     deltas = list(iter_deltas(source, "test.py", coverage, [DefinitionDrop()]))
     assert not deltas

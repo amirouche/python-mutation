@@ -11,7 +11,7 @@ check:
 	uv run ruff check $(MAIN)
 
 check-with-coverage:
-	uv run pytest --cov=mutations.py --cov-report=term --cov-report=html tests.py
+	uv run pytest --cov=mutation --cov-report=term --cov-report=html tests.py
 
 check-fail-fast:
 	uv run pytest -x -vvv --capture=no tests.py
@@ -38,10 +38,6 @@ xxx: ## Things that require attention
 
 serve: ## Run the server
 	uvicorn --lifespan on --log-level warning --reload $(MAIN):uvicorn
-
-lock: ## Lock dependencies
-	uv export --no-dev --no-hashes -o requirements.txt
-	uv export --only-dev --no-hashes -o requirements.dev.txt
 
 wip: lint ## clean up code, and commit wip
 	git add .

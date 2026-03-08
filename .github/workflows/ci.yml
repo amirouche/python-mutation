@@ -19,6 +19,9 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: lint
+        run: uv run ruff check
+
       - name: check-fail-fast
         run: make check-fail-fast
 
