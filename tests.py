@@ -43,6 +43,7 @@ from mutation import (
     CLASSIFICATION_WONT_FIX,
 )
 from mutation import patch as mutation_patch
+from mutation import cli_read
 
 if hasattr(_ast, "Match"):
     from mutation import MutateMatchCase
@@ -662,6 +663,90 @@ def test_mutation_ignored_gc_keeps_valid(tmp_path):
 def test_mutation_ignored_gc_no_dir(tmp_path):
     # Should not raise when .mutations.ignored/ doesn't exist
     mutation_ignored_gc(str(tmp_path))
+
+
+# -- cli_read tests -----------------------------------------------------------
+
+
+def test_cli_read_keywords_standalone_extra():
+    # ~check-cli-00: full form with '--' separator
+    keywords, standalone, extra = cli_read(
+        ["--foo=bar", "--qux", "-vvv", "positional", "arguments", "--", "olive", "extra"]
+    )
+    assert keywords == [("--foo", "bar"), ("--qux", True), ("-vvv", True)]
+    assert standalone == ["positional", "arguments"]
+    assert extra == ["olive", "extra"]
+
+
+def test_cli_read_no_extra():
+    # ~check-cli-01: no '--' separator → extra is empty
+    keywords, standalone, extra = cli_read(
+        ["--foo=bar", "--qux", "-vvv", "positional", "arguments"]
+    )
+    assert keywords == [("--foo", "bar"), ("--qux", True), ("-vvv", True)]
+    assert standalone == ["positional", "arguments"]
+    assert extra == []
+
+
+def test_cli_read_empty():
+    keywords, standalone, extra = cli_read([])
+    assert keywords == []
+    assert standalone == []
+    assert extra == []
+
+
+def test_cli_read_only_positional():
+    keywords, standalone, extra = cli_read(["alpha", "bravo", "charlie"])
+    assert keywords == []
+    assert standalone == ["alpha", "bravo", "charlie"]
+    assert extra == []
+
+
+def test_cli_read_only_keywords():
+    keywords, standalone, extra = cli_read(["--verbose", "--output=file.txt"])
+    assert keywords == [("--verbose", True), ("--output", "file.txt")]
+    assert standalone == []
+    assert extra == []
+
+
+def test_cli_read_bare_separator():
+    # '--' with nothing after it → empty extra
+    keywords, standalone, extra = cli_read(["--flag", "pos", "--"])
+    assert keywords == [("--flag", True)]
+    assert standalone == ["pos"]
+    assert extra == []
+
+
+def test_cli_read_separator_at_start():
+    # '--' at the start → everything after is extra, nothing before
+    keywords, standalone, extra = cli_read(["--", "a", "b"])
+    assert keywords == []
+    assert standalone == []
+    assert extra == ["a", "b"]
+
+
+def test_cli_read_keyword_empty_value():
+    # '--key=' with empty string value
+    keywords, standalone, extra = cli_read(["--key="])
+    assert keywords == [("--key", "")]
+    assert standalone == []
+    assert extra == []
+
+
+def test_cli_read_value_contains_equals():
+    # value itself contains '=' → only the first '=' splits key from value
+    keywords, standalone, extra = cli_read(["--expr=a=b"])
+    assert keywords == [("--expr", "a=b")]
+    assert standalone == []
+    assert extra == []
+
+
+def test_cli_read_order_preserved():
+    # interleaved flags and positionals preserve insertion order
+    keywords, standalone, extra = cli_read(["pos1", "--a", "pos2", "--b=1", "pos3"])
+    assert keywords == [("--a", True), ("--b", "1")]
+    assert standalone == ["pos1", "pos2", "pos3"]
+    assert extra == []
 
 
 if hasattr(_ast, "Match"):
