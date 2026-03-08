@@ -108,6 +108,39 @@ def test_force_conditional():
     assert any("if False" in m for m in mutated)
 
 
+def test_force_conditional_while():
+    source = "def f(x):\n    while x > 0:\n        x -= 1\n    return x\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [ForceConditional()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("while True" in m for m in mutated)
+    assert any("while False" in m for m in mutated)
+
+
+def test_force_conditional_assert():
+    source = "def f(x):\n    assert x > 0\n    return x\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [ForceConditional()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("assert True" in m for m in mutated)
+    assert any("assert False" in m for m in mutated)
+
+
+def test_force_conditional_ifexp():
+    source = "def f(x):\n    return 1 if x > 0 else 0\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [ForceConditional()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("1 if True else 0" in m for m in mutated)
+    assert any("1 if False else 0" in m for m in mutated)
+
+
 def test_mutate_exception_handler():
     source = "def f():\n    try:\n        pass\n    except ValueError:\n        pass\n"
     canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
