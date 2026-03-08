@@ -44,7 +44,6 @@ import ast
 import asyncio
 import fnmatch
 import hashlib
-import itertools
 import json
 import logging
 import os
@@ -477,13 +476,6 @@ class DefinitionDrop(metaclass=Mutation):
         body.pop(idx)
         ast.fix_missing_locations(tree_copy)
         yield tree_copy, node_copy
-
-
-def chunks(iterable, n):
-    """Yield successive n-sized chunks from iterable."""
-    iterable = iter(iterable)
-    for chunk in tuple(itertools.islice(iterable, n)):
-        yield chunk
 
 
 class MutateNumber(metaclass=Mutation):
