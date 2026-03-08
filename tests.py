@@ -7,6 +7,7 @@ from mutation import (
     AugAssignToAssign,
     BreakToReturn,
     Comparison,
+    DefinitionDrop,
     ForceConditional,
     InjectException,
     MutateAssignment,
@@ -33,6 +34,7 @@ from mutation import (
     RemoveDecorator,
     RemoveUnaryOp,
     SwapArguments,
+    StatementDrop,
     ZeroIteration,
     iter_deltas,
     Database,
@@ -771,6 +773,45 @@ def test_cli_read_order_preserved():
     assert keywords == [("--a", True), ("--b", "1")]
     assert standalone == ["pos1", "pos2", "pos3"]
     assert extra == []
+
+
+def test_statement_drop():
+    source = "def f(x):\n    x = x + 1\n    return x\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [StatementDrop()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("pass" in m for m in mutated)
+
+
+def test_statement_drop_skips_pass_and_expr():
+    # pass, bare expressions, and def/class nodes should not be dropped
+    source = "def f():\n    pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [StatementDrop()]))
+    assert not deltas
+
+
+def test_definition_drop():
+    source = "def f(): pass\ndef g(): pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [DefinitionDrop()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("def f" not in m for m in mutated)
+    assert any("def g" not in m for m in mutated)
+
+
+def test_definition_drop_sole_definition_skipped():
+    # Only one definition in body — removing it would leave an empty body.
+    source = "def f(): pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [DefinitionDrop()]))
+    assert not deltas
 
 
 def test_inject_exception_subscript_string_key():
