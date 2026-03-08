@@ -1501,15 +1501,15 @@ def for_each_par_map(loop, pool, inc, proc, items):
 
 
 def mutation_is_survivor(args):
-    command, uid, timeout = args
+    command, uid, timeout, ignored_hashes = args
     # Check if this mutation was previously classified as equivalent
-    with database_open(".") as db:
-        _, diff_bytes = db.get_mutation(uid)
-    diff_text = zlib.decompress(diff_bytes).decode("utf8")
-    ignored_file = Path(".mutations.ignored") / "{}.diff".format(diff_hash(diff_text))
-    if ignored_file.exists():
-        log.debug("Skipping ignored mutation: {}", uid.hex())
-        return False, uid
+    if ignored_hashes:
+        with database_open(".") as db:
+            _, diff_bytes = db.get_mutation(uid)
+        diff_text = zlib.decompress(diff_bytes).decode("utf8")
+        if diff_hash(diff_text) in ignored_hashes:
+            log.debug("Skipping ignored mutation: {}", uid.hex())
+            return False, uid
     command = command + ["--mutation={}".format(uid.hex())]
     log.debug("Running command: {}", ' '.join(command))
     out = run(command, timeout=timeout, silent=True)
@@ -1821,9 +1821,13 @@ async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
     log.info("Worst-case estimate (if every mutation takes the full test suite): {}", eta)
 
     timeout = alpha * 2
+    ignored_dir = Path(".mutations.ignored")
+    ignored_hashes = frozenset(
+        p.stem for p in ignored_dir.glob("*.diff")
+    ) if ignored_dir.exists() else frozenset()
     with database_open(".") as db:
         rows = db.list_mutations()
-    uids = ((command, uid, timeout) for (uid,) in rows)
+    uids = ((command, uid, timeout, ignored_hashes) for (uid,) in rows)
 
     # sampling
     sampling = arguments["--sampling"]
@@ -1950,8 +1954,13 @@ def replay_mutation(uid, alpha, seed, max_workers, command):
             db.set_classification(uid, CLASSIFICATION_STALE)
         return "stale"
 
+    ignored_dir = Path(".mutations.ignored")
+    ignored_hashes = frozenset(
+        p.stem for p in ignored_dir.glob("*.diff")
+    ) if ignored_dir.exists() else frozenset()
+
     while True:
-        uid, is_survivor = mutation_is_survivor((command, uid, timeout))
+        uid, is_survivor = mutation_is_survivor((command, uid, timeout, ignored_hashes))
         if is_survivor is None:
             with database_open(".") as db:
                 db.set_classification(uid, CLASSIFICATION_STALE)
