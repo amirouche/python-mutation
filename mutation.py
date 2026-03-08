@@ -40,6 +40,7 @@ Options:
   -h --help                  Show this screen.
   --version                  Show version.
 """
+
 import ast
 import asyncio
 import fnmatch
@@ -74,12 +75,12 @@ HOUR = 60 * MINUTE
 DAY = 24 * HOUR
 MONTH = 31 * DAY
 
-CLASSIFICATION_REAL_GAP  = 1
-CLASSIFICATION_FRAGILE   = 2
+CLASSIFICATION_REAL_GAP = 1
+CLASSIFICATION_FRAGILE = 2
 CLASSIFICATION_EQUIVALENT = 3
-CLASSIFICATION_WONT_FIX  = 4
-CLASSIFICATION_TODO      = 5
-CLASSIFICATION_STALE     = 6
+CLASSIFICATION_WONT_FIX = 4
+CLASSIFICATION_TODO = 5
+CLASSIFICATION_STALE = 6
 
 EXIT_STALE = 5  # pytest exit code: mutation patch does not apply to current source
 
@@ -102,13 +103,13 @@ def cli_read(arguments):
     standalone = []
     for i, arg in enumerate(arguments):
         if arg == "--":
-            return (keywords, standalone, list(arguments[i + 1:]))
+            return (keywords, standalone, list(arguments[i + 1 :]))
         if arg.startswith("-"):
             eq = arg.find("=")
             if eq == -1:
                 keywords.append((arg, True))
             else:
-                keywords.append((arg[:eq], arg[eq + 1:]))
+                keywords.append((arg[:eq], arg[eq + 1 :]))
         else:
             standalone.append(arg)
     return (keywords, standalone, [])
@@ -198,11 +199,20 @@ class _Logger:
                 msg = msg.replace("{}", str(arg), 1)
         return msg
 
-    def trace(self, msg, *args):   self._log.log(self.TRACE, self._fmt(msg, *args))
-    def debug(self, msg, *args):   self._log.debug(self._fmt(msg, *args))
-    def info(self, msg, *args):    self._log.info(self._fmt(msg, *args))
-    def warning(self, msg, *args): self._log.warning(self._fmt(msg, *args))
-    def error(self, msg, *args):   self._log.error(self._fmt(msg, *args))
+    def trace(self, msg, *args):
+        self._log.log(self.TRACE, self._fmt(msg, *args))
+
+    def debug(self, msg, *args):
+        self._log.debug(self._fmt(msg, *args))
+
+    def info(self, msg, *args):
+        self._log.info(self._fmt(msg, *args))
+
+    def warning(self, msg, *args):
+        self._log.warning(self._fmt(msg, *args))
+
+    def error(self, msg, *args):
+        self._log.error(self._fmt(msg, *args))
 
 
 log = _Logger()
@@ -298,7 +308,9 @@ def timeit():
 
 class Database:
     def __init__(self, path, timeout=300):
-        self._conn = sqlite3.connect(str(path), check_same_thread=False, timeout=timeout)
+        self._conn = sqlite3.connect(
+            str(path), check_same_thread=False, timeout=timeout
+        )
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)"
@@ -308,8 +320,7 @@ class Database:
             "(uid BLOB PRIMARY KEY, path TEXT, diff BLOB)"
         )
         self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS results "
-            "(uid BLOB PRIMARY KEY, status INTEGER)"
+            "CREATE TABLE IF NOT EXISTS results (uid BLOB PRIMARY KEY, status INTEGER)"
         )
         self._conn.commit()
         try:
@@ -358,9 +369,7 @@ class Database:
         return row[0], row[1]  # path: str, diff: bytes
 
     def list_mutations(self):
-        return self._conn.execute(
-            "SELECT uid FROM mutations ORDER BY uid"
-        ).fetchall()
+        return self._conn.execute("SELECT uid FROM mutations ORDER BY uid").fetchall()
 
     # --- results ---
     def set_result(self, uid, status):
@@ -443,7 +452,8 @@ class StatementDrop(metaclass=Mutation):
 
     def predicate(self, node):
         return isinstance(node, ast.stmt) and not isinstance(
-            node, (ast.Expr, ast.Pass, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            node,
+            (ast.Expr, ast.Pass, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
         )
 
     def mutate(self, node, index, tree):
@@ -494,20 +504,22 @@ class MutateNumber(metaclass=Mutation):
         value = node.value
 
         if isinstance(value, int):
+
             def randomize(x):
                 return random.randint(0, x)
         else:
+
             def randomize(x):
                 return random.random() * x
 
         for size in range(8, 32):
-            if value < 2 ** size:
+            if value < 2**size:
                 break
 
         count = 0
         while count != self.COUNT:
             count += 1
-            new_value = randomize(2 ** size)
+            new_value = randomize(2**size)
             if new_value == value:
                 continue
             tree_copy, node_copy = copy_tree_at(tree, index)
@@ -522,9 +534,8 @@ def _is_docstring(node, tree):
     if not isinstance(parent, ast.Expr) or idx is not None:
         return False
     expr_parent, _, expr_idx = get_parent_field_idx(tree, parent)
-    return (
-        expr_idx == 0
-        and isinstance(expr_parent, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    return expr_idx == 0 and isinstance(
+        expr_parent, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
     )
 
 
@@ -630,8 +641,17 @@ class MutateOperator(metaclass=Mutation):
     """Replace an arithmetic, bitwise, shift, or comparison operator with another in the same group, verifying the exact operator matters."""
 
     BINARY_OPS = [
-        ast.Add, ast.Sub, ast.Mod, ast.BitOr, ast.BitAnd,
-        ast.FloorDiv, ast.Div, ast.Mult, ast.BitXor, ast.Pow, ast.MatMult,
+        ast.Add,
+        ast.Sub,
+        ast.Mod,
+        ast.BitOr,
+        ast.BitAnd,
+        ast.FloorDiv,
+        ast.Div,
+        ast.Mult,
+        ast.BitXor,
+        ast.Pow,
+        ast.MatMult,
     ]
     SHIFT_OPS = [ast.LShift, ast.RShift]
     CMP_OPS = [ast.Lt, ast.LtE, ast.Eq, ast.NotEq, ast.GtE, ast.Gt]
@@ -684,13 +704,20 @@ if hasattr(ast, "Match"):
 
 
 _STRING_METHOD_SWAPS = {
-    "lower": ["upper"], "upper": ["lower"],
-    "lstrip": ["rstrip", "removeprefix"], "rstrip": ["lstrip", "removesuffix"],
-    "find": ["rfind"], "rfind": ["find"],
-    "ljust": ["rjust"], "rjust": ["ljust"],
-    "removeprefix": ["removesuffix"], "removesuffix": ["removeprefix"],
-    "partition": ["rpartition"], "rpartition": ["partition"],
-    "split": ["rsplit"], "rsplit": ["split"],
+    "lower": ["upper"],
+    "upper": ["lower"],
+    "lstrip": ["rstrip", "removeprefix"],
+    "rstrip": ["lstrip", "removesuffix"],
+    "find": ["rfind"],
+    "rfind": ["find"],
+    "ljust": ["rjust"],
+    "rjust": ["ljust"],
+    "removeprefix": ["removesuffix"],
+    "removesuffix": ["removeprefix"],
+    "partition": ["rpartition"],
+    "rpartition": ["partition"],
+    "split": ["rsplit"],
+    "rsplit": ["split"],
 }
 
 
@@ -749,7 +776,9 @@ class ForceConditional(metaclass=Mutation):
                 continue
             tree_copy, node_copy = copy_tree_at(tree, index)
             node_copy.test = ast.Constant(
-                value=value, lineno=node_copy.test.lineno, col_offset=node_copy.test.col_offset
+                value=value,
+                lineno=node_copy.test.lineno,
+                col_offset=node_copy.test.col_offset,
             )
             ast.fix_missing_locations(tree_copy)
             yield tree_copy, node_copy
@@ -812,9 +841,9 @@ class NegateCondition(metaclass=Mutation):
     """Wrap a bare (non-comparison) condition with not, inserting the logical inverse of the test, verifying that the truthiness of the value actually matters."""
 
     def predicate(self, node):
-        return isinstance(node, (ast.If, ast.While, ast.Assert, ast.IfExp)) and not isinstance(
-            node.test, ast.Compare
-        )
+        return isinstance(
+            node, (ast.If, ast.While, ast.Assert, ast.IfExp)
+        ) and not isinstance(node.test, ast.Compare)
 
     def mutate(self, node, index, tree):
         tree_copy, node_copy = copy_tree_at(tree, index)
@@ -856,10 +885,16 @@ class MutateLambda(metaclass=Mutation):
         return isinstance(node, ast.Lambda)
 
     def mutate(self, node, index, tree):
-        new_value = 0 if (isinstance(node.body, ast.Constant) and node.body.value is None) else None
+        new_value = (
+            0
+            if (isinstance(node.body, ast.Constant) and node.body.value is None)
+            else None
+        )
         tree_copy, node_copy = copy_tree_at(tree, index)
         node_copy.body = ast.Constant(
-            value=new_value, lineno=node_copy.body.lineno, col_offset=node_copy.body.col_offset
+            value=new_value,
+            lineno=node_copy.body.lineno,
+            col_offset=node_copy.body.col_offset,
         )
         ast.fix_missing_locations(tree_copy)
         yield tree_copy, node_copy
@@ -992,7 +1027,10 @@ class SwapArguments(metaclass=Mutation):
         for i in range(len(node.args)):
             for j in range(i + 1, len(node.args)):
                 tree_copy, node_copy = copy_tree_at(tree, index)
-                node_copy.args[i], node_copy.args[j] = node_copy.args[j], node_copy.args[i]
+                node_copy.args[i], node_copy.args[j] = (
+                    node_copy.args[j],
+                    node_copy.args[i],
+                )
                 ast.fix_missing_locations(tree_copy)
                 yield tree_copy, node_copy
 
@@ -1055,7 +1093,9 @@ class MutateDefaultArgument(metaclass=Mutation):
     """Remove leading default argument values one at a time, making parameters required, verifying that callers always supply them explicitly."""
 
     def predicate(self, node):
-        return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and (
+        return isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+        ) and (
             len(node.args.defaults) > 0
             or any(d is not None for d in node.args.kw_defaults)
         )
@@ -1063,7 +1103,7 @@ class MutateDefaultArgument(metaclass=Mutation):
     def mutate(self, node, index, tree):
         for i in range(len(node.args.defaults)):
             tree_copy, node_copy = copy_tree_at(tree, index)
-            node_copy.args.defaults = node_copy.args.defaults[i + 1:]
+            node_copy.args.defaults = node_copy.args.defaults[i + 1 :]
             ast.fix_missing_locations(tree_copy)
             yield tree_copy, node_copy
         for i, default in enumerate(node.args.kw_defaults):
@@ -1103,7 +1143,9 @@ class MutateIterator(metaclass=Mutation):
         tree_copy, node_copy = copy_tree_at(tree, index)
         lineno = node_copy.iter.lineno
         col = node_copy.iter.col_offset
-        seq_name = ast.Name(id="_mutation_seq_", ctx=ast.Store(), lineno=lineno, col_offset=col)
+        seq_name = ast.Name(
+            id="_mutation_seq_", ctx=ast.Store(), lineno=lineno, col_offset=col
+        )
         list_call = ast.Call(
             func=ast.Name(id="list", ctx=ast.Load(), lineno=lineno, col_offset=col),
             args=[node_copy.iter],
@@ -1111,11 +1153,15 @@ class MutateIterator(metaclass=Mutation):
             lineno=lineno,
             col_offset=col,
         )
-        walrus = ast.NamedExpr(target=seq_name, value=list_call, lineno=lineno, col_offset=col)
+        walrus = ast.NamedExpr(
+            target=seq_name, value=list_call, lineno=lineno, col_offset=col
+        )
         shuffle_call = ast.Call(
             func=ast.Attribute(
                 value=ast.Call(
-                    func=ast.Name(id="__import__", ctx=ast.Load(), lineno=lineno, col_offset=col),
+                    func=ast.Name(
+                        id="__import__", ctx=ast.Load(), lineno=lineno, col_offset=col
+                    ),
                     args=[ast.Constant(value="random", lineno=lineno, col_offset=col)],
                     keywords=[],
                     lineno=lineno,
@@ -1131,7 +1177,9 @@ class MutateIterator(metaclass=Mutation):
             lineno=lineno,
             col_offset=col,
         )
-        seq_load = ast.Name(id="_mutation_seq_", ctx=ast.Load(), lineno=lineno, col_offset=col)
+        seq_load = ast.Name(
+            id="_mutation_seq_", ctx=ast.Load(), lineno=lineno, col_offset=col
+        )
         node_copy.iter = ast.BoolOp(
             op=ast.Or(),
             values=[shuffle_call, seq_load],
@@ -1155,7 +1203,7 @@ class MutateContextManager(metaclass=Mutation):
                 parent, field, idx = get_parent_field_idx(tree_copy, node_copy)
                 if parent is None or idx is None:
                     continue
-                getattr(parent, field)[idx:idx + 1] = node_copy.body
+                getattr(parent, field)[idx : idx + 1] = node_copy.body
             else:
                 node_copy.items.pop(i)
             ast.fix_missing_locations(tree_copy)
@@ -1206,7 +1254,9 @@ class MutateGlobal(metaclass=Mutation):
 class InjectException(metaclass=Mutation):
     """Replace expressions with the exception they can raise, targeting error-handling paths that are commonly forgotten."""
 
-    _DICT_HINTS = frozenset(["dict", "map", "table", "cache", "store", "config", "registry", "lookup"])
+    _DICT_HINTS = frozenset(
+        ["dict", "map", "table", "cache", "store", "config", "registry", "lookup"]
+    )
     _LIST_HINTS = frozenset(["list", "array", "arr", "seq", "items", "elements"])
 
     def predicate(self, node):
@@ -1214,11 +1264,15 @@ class InjectException(metaclass=Mutation):
             return True
         if isinstance(node, ast.Subscript) and not isinstance(node.slice, ast.Slice):
             return True
-        if (isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in ("int", "float", "open", "next")):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("int", "float", "open", "next")
+        ):
             return True
-        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)):
+        if isinstance(node, ast.BinOp) and isinstance(
+            node.op, (ast.Div, ast.FloorDiv, ast.Mod)
+        ):
             return True
         if isinstance(node, ast.Attribute):
             return True
@@ -1241,9 +1295,18 @@ class InjectException(metaclass=Mutation):
         if isinstance(node, ast.BinOp):
             return [("ZeroDivisionError", lambda n: [])]
         if isinstance(node, ast.Attribute):
-            return [("AttributeError", lambda n: [ast.Constant(
-                value=n.attr, lineno=n.lineno, col_offset=n.col_offset,
-            )])]
+            return [
+                (
+                    "AttributeError",
+                    lambda n: [
+                        ast.Constant(
+                            value=n.attr,
+                            lineno=n.lineno,
+                            col_offset=n.col_offset,
+                        )
+                    ],
+                )
+            ]
         return []
 
     def _subscript_specs(self, node):
@@ -1309,8 +1372,14 @@ class InjectException(metaclass=Mutation):
                     if isinstance(handler.type, ast.Name):
                         names = [handler.type.id]
                     elif isinstance(handler.type, ast.Tuple):
-                        names = [e.id for e in handler.type.elts if isinstance(e, ast.Name)]
-                    if exc_name in names or "Exception" in names or "BaseException" in names:
+                        names = [
+                            e.id for e in handler.type.elts if isinstance(e, ast.Name)
+                        ]
+                    if (
+                        exc_name in names
+                        or "Exception" in names
+                        or "BaseException" in names
+                    ):
                         return True
             current = parent
         return False
@@ -1318,14 +1387,18 @@ class InjectException(metaclass=Mutation):
     def _make_raise(self, exc_name, args, lineno, col_offset):
         if args:
             exc = ast.Call(
-                func=ast.Name(id=exc_name, ctx=ast.Load(), lineno=lineno, col_offset=col_offset),
+                func=ast.Name(
+                    id=exc_name, ctx=ast.Load(), lineno=lineno, col_offset=col_offset
+                ),
                 args=args,
                 keywords=[],
                 lineno=lineno,
                 col_offset=col_offset,
             )
         else:
-            exc = ast.Name(id=exc_name, ctx=ast.Load(), lineno=lineno, col_offset=col_offset)
+            exc = ast.Name(
+                id=exc_name, ctx=ast.Load(), lineno=lineno, col_offset=col_offset
+            )
         return ast.Raise(exc=exc, cause=None, lineno=lineno, col_offset=col_offset)
 
     def mutate(self, node, index, tree):
@@ -1398,7 +1471,9 @@ async def pool_for_each_par_map(loop, pool, f, p, iterator):
     pending = set()
     for item in iterator:
         if len(pending) >= limit:
-            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
             for task in done:
                 f(task.result())
         future = loop.run_in_executor(pool, p, item)
@@ -1449,7 +1524,7 @@ def install_module_loader(uid):
     # the one that gives the *shortest* (most specific) module name.
     path_obj = Path(path).resolve()
     if path_obj.name == "__init__.py":
-        module_file = path_obj.parent   # package dir: strip __init__.py
+        module_file = path_obj.parent  # package dir: strip __init__.py
     else:
         module_file = path_obj.with_suffix("")  # regular module: strip .py
 
@@ -1511,7 +1586,7 @@ def mutation_is_survivor(args):
             log.debug("Skipping ignored mutation: {}", uid.hex())
             return False, uid
     command = command + ["--mutation={}".format(uid.hex())]
-    log.debug("Running command: {}", ' '.join(command))
+    log.debug("Running command: {}", " ".join(command))
     out = run(command, timeout=timeout, silent=True)
     log.debug("Command exit code is: {}", out)
     if out == EXIT_STALE:
@@ -1525,7 +1600,7 @@ def mutation_is_survivor(args):
         log.error(
             "pytest exited with code 4 (unrecognised arguments) for command: `{}`\n"
             "Hint: mutation.py is not loaded as a pytest plugin. "
-            "Add `pytest_plugins = [\"mutation\"]` to your conftest.py.",
+            'Add `pytest_plugins = ["mutation"]` to your conftest.py.',
             " ".join(command),
         )
         sys.exit(1)
@@ -1818,13 +1893,17 @@ async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
     command.extend(arguments["<file-or-directory>"])
 
     eta = humanize(alpha * total / max_workers)
-    log.info("Worst-case estimate (if every mutation takes the full test suite): {}", eta)
+    log.info(
+        "Worst-case estimate (if every mutation takes the full test suite): {}", eta
+    )
 
     timeout = alpha * 2
     ignored_dir = Path(".mutations.ignored")
-    ignored_hashes = frozenset(
-        p.stem for p in ignored_dir.glob("*.diff")
-    ) if ignored_dir.exists() else frozenset()
+    ignored_hashes = (
+        frozenset(p.stem for p in ignored_dir.glob("*.diff"))
+        if ignored_dir.exists()
+        else frozenset()
+    )
     with database_open(".") as db:
         rows = db.list_mutations()
     uids = ((command, uid, timeout, ignored_hashes) for (uid,) in rows)
@@ -1842,10 +1921,10 @@ async def mutation_exec(loop, seed, alpha, total, max_workers, arguments):
             uid, is_survivor = args
             progress.update(1)
             if is_survivor is True:
-                with database_open(Path('.')) as db:
+                with database_open(Path(".")) as db:
                     db.set_result(uid, 0)
             elif is_survivor is None:
-                with database_open(Path('.')) as db:
+                with database_open(Path(".")) as db:
                     db.set_result(uid, 0)
                     db.set_classification(uid, CLASSIFICATION_STALE)
 
@@ -1949,22 +2028,28 @@ def replay_mutation(uid, alpha, seed, max_workers, command):
     except Exception:
         applies = False
     if not applies:
-        log.info("Mutation {} is stale (patch no longer applies to {}).", uid.hex(), path)
+        log.info(
+            "Mutation {} is stale (patch no longer applies to {}).", uid.hex(), path
+        )
         with database_open(".") as db:
             db.set_classification(uid, CLASSIFICATION_STALE)
         return "stale"
 
     ignored_dir = Path(".mutations.ignored")
-    ignored_hashes = frozenset(
-        p.stem for p in ignored_dir.glob("*.diff")
-    ) if ignored_dir.exists() else frozenset()
+    ignored_hashes = (
+        frozenset(p.stem for p in ignored_dir.glob("*.diff"))
+        if ignored_dir.exists()
+        else frozenset()
+    )
 
     while True:
         uid, is_survivor = mutation_is_survivor((command, uid, timeout, ignored_hashes))
         if is_survivor is None:
             with database_open(".") as db:
                 db.set_classification(uid, CLASSIFICATION_STALE)
-            log.info("Mutation {} is stale (patch no longer applies), skipping.", uid.hex())
+            log.info(
+                "Mutation {} is stale (patch no longer applies), skipping.", uid.hex()
+            )
             return "stale"
         if not is_survivor:
             with database_open(".") as db:
@@ -1976,12 +2061,20 @@ def replay_mutation(uid, alpha, seed, max_workers, command):
         log.info("* You can use Ctrl+C to exit at anytime, your progress is saved.")
         mutation_show(uid.hex())
         log.info("")
-        log.info("  [r] Replay        — re-run this mutation against current test suite")
+        log.info(
+            "  [r] Replay        — re-run this mutation against current test suite"
+        )
         log.info("  [1] Real gap      — I will write a test (keeps in queue)")
         log.info("  [2] Fragile       — risk accepted (keeps in queue, marked)")
-        log.info("  [3] Equivalent    — semantically invisible (writes to .mutations.ignored/)")
-        log.info("  [4] Won't fix     — known gap, consciously accepted (never resurfaces)")
-        log.info("  [5] Todo          — real gap, not fixing now (resurfaces next replay)")
+        log.info(
+            "  [3] Equivalent    — semantically invisible (writes to .mutations.ignored/)"
+        )
+        log.info(
+            "  [4] Won't fix     — known gap, consciously accepted (never resurfaces)"
+        )
+        log.info(
+            "  [5] Todo          — real gap, not fixing now (resurfaces next replay)"
+        )
         log.info("  [s] Skip          — undecided, back of queue")
         log.info("  [q] Quit")
         choice = input("> ").strip().lower()
@@ -2014,7 +2107,7 @@ def replay_mutation(uid, alpha, seed, max_workers, command):
                 db.set_classification(uid, CLASSIFICATION_TODO)
             return None
         elif choice == "s":
-            return "skip"   # caller appends uid to back of queue
+            return "skip"  # caller appends uid to back of queue
         elif choice == "q":
             exit(0)
         # else: invalid input — loop back to menu
@@ -2062,7 +2155,7 @@ def mutation_list():
     if not uids:
         log.info("No mutation failures 👍")
         sys.exit(0)
-    for (uid, status) in uids:
+    for uid, status in uids:
         log.info("{}\t{}".format(uid.hex(), "skipped" if status == 1 else ""))
 
 def mutation_summary():
@@ -2075,15 +2168,15 @@ def mutation_summary():
 
     killed = total_mutations - total_results - stale
 
-    unreviewed  = counts.get(None, 0) + counts.get(1, 0)  # None + old status=1 skip
-    real_gaps   = counts.get(CLASSIFICATION_REAL_GAP, 0)
-    fragile     = counts.get(CLASSIFICATION_FRAGILE, 0)
-    equivalent  = counts.get(CLASSIFICATION_EQUIVALENT, 0)
-    wont_fix    = counts.get(CLASSIFICATION_WONT_FIX, 0)
-    todo        = counts.get(CLASSIFICATION_TODO, 0)
+    unreviewed = counts.get(None, 0) + counts.get(1, 0)  # None + old status=1 skip
+    real_gaps = counts.get(CLASSIFICATION_REAL_GAP, 0)
+    fragile = counts.get(CLASSIFICATION_FRAGILE, 0)
+    equivalent = counts.get(CLASSIFICATION_EQUIVALENT, 0)
+    wont_fix = counts.get(CLASSIFICATION_WONT_FIX, 0)
+    todo = counts.get(CLASSIFICATION_TODO, 0)
 
     survived = total_results
-    tested   = total_mutations - stale
+    tested = total_mutations - stale
 
     ignored_dir = root / ".mutations.ignored"
     ignored_files = len(list(ignored_dir.glob("*.diff"))) if ignored_dir.exists() else 0
@@ -2095,7 +2188,9 @@ def mutation_summary():
     log.info("Survived:             {:>6,}".format(survived))
     log.info("  — Real gaps:        {:>6,}".format(real_gaps))
     log.info("  — Fragile coverage: {:>6,}".format(fragile))
-    log.info("  — Equivalent:       {:>6,}  (in .mutations.ignored/)".format(equivalent))
+    log.info(
+        "  — Equivalent:       {:>6,}  (in .mutations.ignored/)".format(equivalent)
+    )
     log.info("  — Won't fix:        {:>6,}".format(wont_fix))
     log.info("  — Todo:             {:>6,}".format(todo))
     log.info("  — Unreviewed:       {:>6,}".format(unreviewed))
@@ -2147,7 +2242,11 @@ def mutation_ignored_gc(root):
     for ignore_file in ignored_dir.glob("*.diff"):
         content = ignore_file.read_text()
         # Strip header comment lines to isolate the diff
-        diff_lines = [line for line in content.splitlines(keepends=True) if not line.startswith("#")]
+        diff_lines = [
+            line
+            for line in content.splitlines(keepends=True)
+            if not line.startswith("#")
+        ]
         diff_text = "".join(diff_lines).lstrip("\n")
         # Extract target path from "--- a/path/to/file.py"
         path = None
@@ -2157,7 +2256,9 @@ def mutation_ignored_gc(root):
                 break
         if path is None or not (root / path).exists():
             ignore_file.unlink()
-            log.info("GC: removed stale ignore file {} (source not found)", ignore_file.name)
+            log.info(
+                "GC: removed stale ignore file {} (source not found)", ignore_file.name
+            )
             removed += 1
             continue
         try:
@@ -2167,7 +2268,10 @@ def mutation_ignored_gc(root):
                 raise ValueError("context mismatch")
         except Exception:
             ignore_file.unlink()
-            log.info("GC: removed stale ignore file {} (diff no longer applies)", ignore_file.name)
+            log.info(
+                "GC: removed stale ignore file {} (diff no longer applies)",
+                ignore_file.name,
+            )
             removed += 1
     if removed:
         log.info("Removed {} stale .mutations.ignored/ file(s).", removed)
@@ -2238,7 +2342,9 @@ def main():
                 "--include": kw.get("--include"),
                 "--exclude": kw.get("--exclude"),
                 "--only-deadcode-detection": kw.get("--only-deadcode-detection", False),
-                "--without-exception-injection": kw.get("--without-exception-injection", False),
+                "--without-exception-injection": kw.get(
+                    "--without-exception-injection", False
+                ),
                 "--sampling": kw.get("--sampling"),
                 "--randomly-seed": kw.get("--randomly-seed"),
                 "--max-workers": kw.get("--max-workers"),
