@@ -256,8 +256,8 @@ wheels = [
 
 [[package]]
 name = "mutation"
-version = "0.5.0"
-source = { virtual = "." }
+version = "0.5.6"
+source = { editable = "." }
 dependencies = [
     { name = "aiostream" },
     { name = "docopt" },
