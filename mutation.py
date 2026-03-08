@@ -1734,14 +1734,6 @@ def mutation_only_deadcode(x):
     return getattr(x, "deadcode_detection", False)
 
 
-def mutation_all(x):
-    return True
-
-
-def mutation_without_inject_exception(x):
-    return not isinstance(x, InjectException)
-
-
 async def play_create_mutations(loop, root, db, max_workers, arguments):
     # Go through all files, and produce mutations, take into account
     # include pattern, and exclude patterns.  Also, exclude what has
@@ -1762,9 +1754,9 @@ async def play_create_mutations(loop, root, db, max_workers, arguments):
     if only_dead_code:
         mutation_predicate = mutation_only_deadcode
     elif without_inject:
-        mutation_predicate = mutation_without_inject_exception
+        mutation_predicate = lambda x: not isinstance(x, InjectException)
     else:
-        mutation_predicate = mutation_all
+        mutation_predicate = lambda x: True
 
     def make_item(filepath):
         with filepath.open() as f:
