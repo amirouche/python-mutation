@@ -19,6 +19,12 @@ pip install mutation
 mutation play tests.py --include=foobar/ex.py --include=foobar/__init__.py --exclude=tests.py
 ```
 
+To install the latest development version directly from the `dev` branch:
+
+```
+uv tool install git+https://github.com/amirouche/mutation.py@dev
+```
+
 Then work through the results:
 
 ```
