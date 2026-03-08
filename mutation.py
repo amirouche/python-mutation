@@ -1945,13 +1945,29 @@ def replay_mutation(uid, alpha, seed, max_workers, command):
         command.append("--numprocesses={}".format(max_workers))
     timeout = alpha * 2
 
+    # Check applicability before launching pytest to give immediate feedback.
+    with database_open(".") as db:
+        path, diff_bytes = db.get_mutation(uid)
+    diff_text = zlib.decompress(diff_bytes).decode("utf8")
+    try:
+        with open(path) as f:
+            source = f.read()
+        applies = _diff_applies(diff_text, ast.unparse(ast.parse(source)))
+    except Exception:
+        applies = False
+    if not applies:
+        log.info("Mutation {} is stale (patch no longer applies to {}).", uid.hex(), path)
+        with database_open(".") as db:
+            db.set_classification(uid, CLASSIFICATION_STALE)
+        return "stale"
+
     while True:
         uid, is_survivor = mutation_is_survivor((command, uid, timeout))
         if is_survivor is None:
             with database_open(".") as db:
                 db.set_classification(uid, CLASSIFICATION_STALE)
             log.info("Mutation {} is stale (patch no longer applies), skipping.", uid.hex())
-            return None
+            return "stale"
         if not is_survivor:
             with database_open(".") as db:
                 db.del_result(uid)
@@ -2018,23 +2034,27 @@ def replay(arguments):
 
     alpha, max_workers = check_tests(root, seed, arguments, command)
 
-    with database_open(root) as db:
-        while True:
-            with database_open(root) as db:
-                uids = [uid for (uid,) in db.list_results_for_replay()]
-            uids = sorted(
-                uids,
-                key=mutation_diff_size,
-                reverse=True,
-            )
-            if not uids:
+    found_stale = False
+    while True:
+        with database_open(root) as db:
+            uids = [uid for (uid,) in db.list_results_for_replay()]
+        uids = sorted(
+            uids,
+            key=mutation_diff_size,
+            reverse=True,
+        )
+        if not uids:
+            if not found_stale:
                 log.info("No mutation failures 👍")
-                exit(0)
-            while uids:
-                uid = uids.pop(0)
-                result = replay_mutation(uid, alpha, seed, max_workers, command)
-                if result == "skip":
-                    uids.append(uid)
+            exit(0)
+        found_stale = False
+        while uids:
+            uid = uids.pop(0)
+            result = replay_mutation(uid, alpha, seed, max_workers, command)
+            if result == "stale":
+                found_stale = True
+            elif result == "skip":
+                uids.append(uid)
 
 
 def mutation_list():
