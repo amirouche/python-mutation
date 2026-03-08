@@ -2024,6 +2024,42 @@ def mutation_summary():
     log.info("Ignored:              {:>6,}".format(ignored_files))
 
 
+_NO_NEWLINE_MARKER = "\\ No newline at end of file"
+
+
+def _diff_applies(diff_text, source):
+    """Return True if context and remove lines in the diff match the source.
+
+    patch() does not validate context lines, so we check them separately
+    to detect stale diffs whose line numbers happen to be in range.
+    """
+    s = source.splitlines(keepends=True)
+    p = diff_text.splitlines(keepends=True)
+    i = 0
+    while i < len(p) and p[i].startswith(("---", "+++")):
+        i += 1
+    while i < len(p):
+        m = _hdr_pat.match(p[i].rstrip("\n"))
+        if not m:
+            return False
+        sl = int(m.group(1)) - 1
+        i += 1
+        while i < len(p) and not p[i].startswith("@"):
+            line = p[i]
+            i += 1
+            if line.startswith("\\"):
+                continue
+            if line[0] in (" ", "-"):
+                content = line[1:].rstrip("\n")
+                if content.endswith(_NO_NEWLINE_MARKER):
+                    content = content[: -len(_NO_NEWLINE_MARKER)]
+                src = s[sl].rstrip("\n") if sl < len(s) else None
+                if src != content:
+                    return False
+                sl += 1
+    return True
+
+
 def mutation_ignored_gc(root):
     root = Path(root)
     ignored_dir = root / ".mutations.ignored"
@@ -2049,7 +2085,8 @@ def mutation_ignored_gc(root):
         try:
             source = (root / path).read_text()
             normalized = ast.unparse(ast.parse(source))
-            patch(diff_text, normalized)
+            if not _diff_applies(diff_text, normalized):
+                raise ValueError("context mismatch")
         except Exception:
             ignore_file.unlink()
             log.info("GC: removed stale ignore file {} (diff no longer applies)", ignore_file.name)
