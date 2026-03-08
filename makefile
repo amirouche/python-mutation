@@ -10,7 +10,7 @@ check:
 	uv run pytest tests.py
 
 check-with-coverage:
-	uv run pytest --cov=foobar --cov-report=html tests.py
+	uv run pytest --cov=mutations.py --cov-report=html tests.py
 
 check-fail-fast:
 	uv run pytest -x -vvv --capture=no tests.py
