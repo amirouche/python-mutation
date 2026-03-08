@@ -20,6 +20,9 @@ dependencies = [
     "zstandard[cffi]>=0.25.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/amirouche/mutation.py"
+
 [project.scripts]
 mutation = "mutation:main"
 
