@@ -1,6 +1,6 @@
 [project]
 name = "mutation"
-version = "0.5.6"
+version = "0.6.0"
 description = "Your tests pass. But do they actually test anything?"
 readme = "README.md"
 requires-python = ">=3.12"
