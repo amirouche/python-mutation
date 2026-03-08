@@ -2011,17 +2011,17 @@ def mutation_summary():
     ignored_dir = root / ".mutations.ignored"
     ignored_files = len(list(ignored_dir.glob("*.diff"))) if ignored_dir.exists() else 0
 
-    log.info("Mutations generated:  {:>6,}", total_mutations)
-    log.info("Tested:               {:>6,}", tested)
-    log.info("Killed:               {:>6,}", killed)
-    log.info("Survived:             {:>6,}", survived)
-    log.info("  — Real gaps:        {:>6,}", real_gaps)
-    log.info("  — Fragile coverage: {:>6,}", fragile)
-    log.info("  — Equivalent:       {:>6,}  (in .mutations.ignored/)", equivalent)
-    log.info("  — Won't fix:        {:>6,}", wont_fix)
-    log.info("  — Todo:             {:>6,}", todo)
-    log.info("  — Unreviewed:       {:>6,}", unreviewed)
-    log.info("Ignored:              {:>6,}", ignored_files)
+    log.info("Mutations generated:  {:>6,}".format(total_mutations))
+    log.info("Tested:               {:>6,}".format(tested))
+    log.info("Killed:               {:>6,}".format(killed))
+    log.info("Survived:             {:>6,}".format(survived))
+    log.info("  — Real gaps:        {:>6,}".format(real_gaps))
+    log.info("  — Fragile coverage: {:>6,}".format(fragile))
+    log.info("  — Equivalent:       {:>6,}  (in .mutations.ignored/)".format(equivalent))
+    log.info("  — Won't fix:        {:>6,}".format(wont_fix))
+    log.info("  — Todo:             {:>6,}".format(todo))
+    log.info("  — Unreviewed:       {:>6,}".format(unreviewed))
+    log.info("Ignored:              {:>6,}".format(ignored_files))
 
 
 def mutation_ignored_gc(root):
