@@ -8,6 +8,7 @@ from mutation import (
     BreakToReturn,
     Comparison,
     ForceConditional,
+    InjectException,
     MutateAssignment,
     MutateCallArgs,
     MutateContainment,
@@ -770,6 +771,62 @@ def test_cli_read_order_preserved():
     assert keywords == [("--a", True), ("--b", "1")]
     assert standalone == ["pos1", "pos2", "pos3"]
     assert extra == []
+
+
+def test_inject_exception_subscript_string_key():
+    source = "def f(d):\n    return d['key']\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [InjectException()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("KeyError" in m for m in mutated)
+
+
+def test_inject_exception_subscript_int_key():
+    source = "def f(lst):\n    return lst[0]\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [InjectException()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("IndexError" in m for m in mutated)
+
+
+def test_inject_exception_division():
+    source = "def f(a, b):\n    return a / b\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [InjectException()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("ZeroDivisionError" in m for m in mutated)
+
+
+def test_inject_exception_guarded_skipped():
+    # Exception injection inside a matching except handler should be skipped.
+    source = (
+        "def f(d):\n"
+        "    try:\n"
+        "        return d['key']\n"
+        "    except KeyError:\n"
+        "        return None\n"
+    )
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [InjectException()]))
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert all("KeyError" not in m for m in mutated)
+
+
+def test_inject_exception_call_int():
+    source = "def f(s):\n    return int(s)\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [InjectException()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("ValueError" in m for m in mutated)
 
 
 if hasattr(_ast, "Match"):
