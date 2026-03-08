@@ -392,6 +392,16 @@ def test_mutate_iterator_no_double_wrap():
     assert not deltas
 
 
+def test_mutate_iterator_async_for():
+    source = "async def f(items):\n    async for x in items:\n        pass\n"
+    canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
+    coverage = _full_coverage(source)
+    deltas = list(iter_deltas(source, "test.py", coverage, [MutateIterator()]))
+    assert deltas
+    mutated = [mutation_patch(d, canonical) for d in deltas]
+    assert any("reversed(items)" in m for m in mutated)
+
+
 def test_swap_arguments():
     source = "def f(a, b):\n    return g(a, b)\n"
     canonical = stdlib_ast.unparse(stdlib_ast.parse(source))
